@@ -373,8 +373,13 @@ class RESTAdapter:
                 return value
 
         if self._uri_template:
+            # `record` may itself carry an "id" key (most will); it must not
+            # collide with the "id" this method always supplies, so the template's
+            # own view of the record's fields is layered *under* the resolved id
+            # rather than passed alongside it as a second keyword.
+            format_kwargs = {**record, "id": id_str}
             try:
-                candidate = self._uri_template.format(id=id_str, **record)
+                candidate = self._uri_template.format(**format_kwargs)
             except (KeyError, IndexError):
                 candidate = self._uri_template.format(id=id_str)
             if candidate.startswith(("http://", "https://")):
