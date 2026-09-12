@@ -1,0 +1,258 @@
+"""Contradiction detection across apps.
+
+Notion says the feature shipped. Slack celebrated it nine days ago. Linear has the
+issue in progress and GitHub has the fix sitting in an unmerged PR with no approvals.
+All four are sincere; two of them are wrong; nobody noticed because no human reads all
+four systems at once. That is the failure this project exists to catch.
+
+Two rules govern what happens next, and they are the difference between a useful tool
+and a confident liar:
+
+1. **Surface, never silently rank.** The tempting move is to resolve the conflict by
+   recency and move on. Recency is a heuristic, not evidence — the stale claim is
+   sometimes the true one and the fresh claim is sometimes a mistake. A contradiction
+   is reported with both sides cited, and a human or a stronger signal decides.
+
+2. **Authority is not correctness.** A status field in the official spec is not more
+   true than an open PR; it is merely more official. Weighting sources by their
+   prestige is exactly the mistake this whole product was designed against.
+
+Detection is deliberately shallow and deterministic — lexical status extraction plus
+subject linking. No model is involved, so it cannot hallucinate a conflict, and its
+misses are inspectable rather than mysterious.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from enum import StrEnum
+
+from .brain import Brain, Fact
+
+__all__ = ["Claim", "ClaimStatus", "Conflict", "detect_contradictions", "extract_subjects"]
+
+
+class ClaimStatus(StrEnum):
+    """What a piece of text asserts about the state of a thing."""
+
+    COMPLETE = "complete"
+    IN_FLIGHT = "in_flight"
+    BLOCKED = "blocked"
+    UNKNOWN = "unknown"
+
+
+_COMPLETE = re.compile(
+    r"\b(shipped|ship it|released|launched|live|deployed|merged|completed?|"
+    r"done|resolved|closed|fixed)\b",
+    re.I,
+)
+_IN_FLIGHT = re.compile(
+    r"\b(in progress|in review|wip|open|todo|to do|started|ongoing|"
+    r"under review|pending|awaiting|draft)\b",
+    re.I,
+)
+_BLOCKED = re.compile(
+    r"\b(blocked|broken|failing|still (?:not|isn'?t|timing out|broken)|"
+    # "regression pass/test/suite" is QA vocabulary, not a defect report. Matching it
+    # read a completed QA issue as broken, which then outranked the real contradiction.
+    r"regressed|regression(?!\s+(?:pass|test|suite|run|testing))|"
+    r"does ?n[o']t work|cannot|can'?t)\b",
+    re.I,
+)
+_NEGATED_COMPLETE = re.compile(
+    r"\b(not|isn'?t|was ?n'?t|never|no longer)\s+(?:\w+\s+){0,2}"
+    r"(shipped|released|live|deployed|merged|done|fixed|resolved)\b",
+    re.I,
+)
+
+# Subject keys the demo turns on: issue keys, PR references, and feature names.
+_ISSUE_KEY = re.compile(r"\b([A-Z]{2,5}-\d{1,6})\b")
+_PR_REF = re.compile(r"(?:\bPR\s*#?|#)(\d{1,6})\b", re.I)
+_FEATURE = re.compile(r"\b(export|import|billing|auth|sso|search|sync)\s*(v\d)?\b", re.I)
+
+
+def extract_subjects(text: str) -> set[str]:
+    """What things is this text about? Returns normalised subject keys.
+
+    Kept narrow on purpose. A subject extractor that matches loosely produces
+    contradictions between unrelated facts, and a false contradiction costs a human's
+    attention — the scarcest resource in the whole system.
+    """
+    subjects: set[str] = set()
+    subjects.update(m.group(1).upper() for m in _ISSUE_KEY.finditer(text))
+    subjects.update(f"PR#{m.group(1)}" for m in _PR_REF.finditer(text))
+    for m in _FEATURE.finditer(text):
+        version = (m.group(2) or "").lower()
+        # An UNVERSIONED feature word is a shared word, not a shared referent. Two
+        # messages both saying "export" are not talking about the same thing in any
+        # sense a contradiction can be built on, and treating them as though they were
+        # produced 303 conflicts from an 88-record corpus on the first real run —
+        # which is not detection, it is noise wearing detection's clothes.
+        if version:
+            subjects.add(f"feature:{m.group(1).lower()}{version}")
+    return subjects
+
+
+def classify(text: str) -> ClaimStatus:
+    """Extract what the text asserts. Negation is checked before completion."""
+    if _NEGATED_COMPLETE.search(text):
+        return ClaimStatus.BLOCKED
+    if _BLOCKED.search(text):
+        return ClaimStatus.BLOCKED
+    # In-flight is checked before complete: "open" and "in review" are more specific
+    # signals than a stray "closed" appearing elsewhere in a long body.
+    if _IN_FLIGHT.search(text):
+        return ClaimStatus.IN_FLIGHT
+    if _COMPLETE.search(text):
+        return ClaimStatus.COMPLETE
+    return ClaimStatus.UNKNOWN
+
+
+@dataclass(frozen=True, slots=True)
+class Claim:
+    """One fact's assertion about one subject."""
+
+    fact: Fact
+    subject: str
+    status: ClaimStatus
+    is_primary: bool = False
+    """True when this record *is* the subject rather than merely mentioning it.
+
+    The Linear issue ENG-412 is authoritative about ENG-412's state. A different issue
+    whose description says "once ENG-412 lands..." is not — it is a passing reference,
+    and reading a status off it produces confident nonsense. Without this distinction
+    the detector cheerfully reports that ENG-433 contradicts an email about ENG-412.
+    """
+
+    def render(self) -> str:
+        mark = "" if self.is_primary else "  (mentions)"
+        return (
+            f"{self.status.value:>10}{mark}  {self.fact.text[:90]}\n"
+            f"            {self.fact.cite()}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Conflict:
+    """Two claims about one subject that cannot both be true."""
+
+    subject: str
+    left: Claim
+    right: Claim
+    explanation: str
+
+    @property
+    def apps(self) -> tuple[str, str]:
+        return (self.left.fact.app, self.right.fact.app)
+
+    def render(self) -> str:
+        return (
+            f"CONTRADICTION · {self.subject}\n"
+            f"  {self.explanation}\n"
+            f"  {self.left.render()}\n"
+            f"  {self.right.render()}"
+        )
+
+    def evidence_ids(self) -> tuple[str, ...]:
+        return (self.left.fact.node_id, self.right.fact.node_id)
+
+
+# Which status pairs are genuinely incompatible. UNKNOWN conflicts with nothing —
+# absence of a signal is not evidence of the opposite signal.
+_INCOMPATIBLE: frozenset[frozenset[ClaimStatus]] = frozenset(
+    {
+        frozenset({ClaimStatus.COMPLETE, ClaimStatus.IN_FLIGHT}),
+        frozenset({ClaimStatus.COMPLETE, ClaimStatus.BLOCKED}),
+    }
+)
+
+
+def _is_primary(fact: Fact, subject: str) -> bool:
+    """Is this record the subject itself, or just something that mentions it?
+
+    Matched on the record's own identifier rather than its text: `linear:ENG-412` IS
+    ENG-412; `linear:ENG-433` is not, however often it says the words.
+    """
+    ident = fact.node_id.split(":", 1)[-1].upper()
+    if subject.startswith("PR#"):
+        return ident.endswith(f"-{subject[3:]}")
+    if subject.startswith("feature:"):
+        # No record "is" a feature the way an issue is itself. The workable proxy is
+        # title position: a page called "Export v2 — Spec" is about export v2; a Slack
+        # message that mentions it in passing forty words in is not.
+        head = fact.text[:70].lower().replace(" ", "")
+        return subject[len("feature:") :] in head
+    return ident == subject
+
+
+def detect_contradictions(
+    brain: Brain, *, cross_app_only: bool = True, require_primary: bool = True
+) -> list[Conflict]:
+    """Find claims that cannot all be true.
+
+    `cross_app_only` defaults to True because a disagreement inside one app is usually
+    just a stale comment thread, whereas a disagreement *between* systems of record is
+    the signal worth a human's attention — and is the thing no single dashboard can see.
+    """
+    claims: dict[str, list[Claim]] = {}
+    for fact in brain._facts.values():  # noqa: SLF001 - Brain owns this index
+        status = classify(fact.text)
+        if status is ClaimStatus.UNKNOWN:
+            continue
+        for subject in extract_subjects(fact.text):
+            claims.setdefault(subject, []).append(
+                Claim(fact, subject, status, is_primary=_is_primary(fact, subject))
+            )
+
+    # One conflict per (subject, app-pair). Ten Slack messages disagreeing with one
+    # Linear issue is ONE disagreement between Slack and Linear about one subject, not
+    # ten findings. Emitting the cartesian product is how a detector with a genuine hit
+    # buries it under its own output.
+    seen: set[tuple[str, frozenset[str]]] = set()
+    conflicts: list[Conflict] = []
+    for subject, subject_claims in sorted(claims.items()):
+        # Authoritative first, then most recent. Ordering by recency alone picks the
+        # freshest passing mention as a pair's representative — which is how "the
+        # export v2 spec contradicts PR #288" degrades into "this week's all-hands
+        # agenda contradicts PR #281". Primacy is the stronger signal; recency only
+        # breaks ties within it.
+        ordered = sorted(
+            subject_claims,
+            key=lambda c: (
+                c.is_primary,
+                c.fact.occurred_at or c.fact.pointer.retrieved_at,
+            ),
+            reverse=True,
+        )
+        for i, left in enumerate(ordered):
+            for right in ordered[i + 1 :]:
+                if frozenset({left.status, right.status}) not in _INCOMPATIBLE:
+                    continue
+                if cross_app_only and left.fact.app == right.fact.app:
+                    continue
+                # At least one side must be authoritative for the subject. Two passing
+                # mentions disagreeing is gossip, not a contradiction worth a human.
+                if require_primary and not (left.is_primary or right.is_primary):
+                    continue
+                key = (subject, frozenset({left.fact.app, right.fact.app}))
+                if key in seen:
+                    continue
+                seen.add(key)
+                conflicts.append(
+                    Conflict(
+                        subject=subject,
+                        left=left,
+                        right=right,
+                        explanation=(
+                            f"{left.fact.app} asserts {left.status.value}; "
+                            f"{right.fact.app} asserts {right.status.value}. "
+                            "Both cannot hold. Not ranked automatically — recency and "
+                            "source authority are heuristics, not evidence."
+                        ),
+                    )
+                )
+
+    # Strongest first: both sides authoritative outranks one side plus a mention.
+    conflicts.sort(key=lambda c: -(int(c.left.is_primary) + int(c.right.is_primary)))
+    return conflicts

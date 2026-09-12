@@ -1,0 +1,11 @@
+person_id,full_name,email,slack_handle,github_login,linear_name,notion_name,role
+p01,Sarah Kim,sarah.kim@meridian.dev,sarah,sarah-k,Sarah Kim,S. Kim,Senior Backend Engineer
+p02,Marcus Chen,marcus.chen@meridian.dev,mchen,marcus-chen,Marcus Chen,M. Chen,Engineering Lead
+p03,Priya Patel,priya.patel@meridian.dev,priya,,Priya Patel,Priya P.,Support Team Lead
+p04,Jordan Alvarez,jordan.alvarez@meridian.dev,jalvarez,,Jordan Alvarez,J. Alvarez,Customer Success Manager
+p05,David Osei,david.osei@meridian.dev,dosei,d-osei,David Osei,David O.,Backend Engineer
+p06,Emily Zhao,emily.zhao@meridian.dev,emilyz,,Emily Zhao,E. Zhao,Product Manager
+p07,Tom Becker,tom@meridian.dev,tomb,tbecker,,Tom B.,Co-Founder & CEO
+p08,Lena Fischer,lena.fischer@meridian.dev,lenaf,lena-fischer,Lena Fischer,Lena F.,Frontend Engineer
+p09,Nora Bennett,nora.bennett@meridian.dev,norab,,Nora Bennett,Nora B.,Support Engineer
+p10,Amir Hassan,amir.hassan@meridian.dev,amirh,amir-hassan,Amir Hassan,Amir H.,Sales Engineer

@@ -1,0 +1,17 @@
+kind,number,title,body,state,author_person_id,days_ago,approvals,linked_issue
+pr,270,feat: async export job queue,Moves export generation to a redis-backed worker pool. Part of export v2 work. Closes ENG-405.,MERGED,p01,31,2,ENG-405
+pr,274,feat: JSON export format,"Adds JSON as a supported export format, reuses the v2 job queue. Closes ENG-408.",MERGED,p05,27,2,ENG-408
+pr,279,feat: export progress bar (frontend),Websocket-driven progress bar for the export panel. Closes ENG-401.,MERGED,p08,24,1,ENG-401
+pr,281,chore: export v2 QA fixes,Small fixes found during the QA pass in ENG-410 (small/medium workspaces only).,MERGED,p03,12,1,ENG-410
+pr,284,docs: update export API docs for v2,Updates public API docs to reflect new async export endpoints.,MERGED,p06,10,1,
+pr,288,fix: export v2 timeout on large workspaces,"Adds cursor-based pagination to the export batch job so it stops loading the full workspace into memory at once. Should fix ENG-412 (export hangs/times out above ~50k rows). Tested locally against a synthetic 60k-row workspace, still need to verify against a dataset closer to northstar's real size (~80k rows) before merging. Holding on merge until QA signs off - don't want to re-announce this as fixed until it actually is.",OPEN,p01,6,0,ENG-412
+issue,289,export progress bar occasionally stuck at 99%,"Cosmetic bug, job actually completes fine but the UI progress bar sticks at 99% for a few seconds before jumping to done.",OPEN,p08,5,0,
+pr,291,fix: progress bar stuck at 99%,Fixes off-by-one in the progress event emitter. Closes #289.,MERGED,p08,3,1,
+issue,293,rate limit export API per workspace,See ENG-415. A workspace kicking off 10+ concurrent exports can starve the worker pool for everyone else.,OPEN,p02,5,0,ENG-415
+issue,295,export audit log for SOC2,"See ENG-395. Need to log actor, workspace, format, row count, timestamp for every export.",OPEN,p01,21,0,ENG-395
+pr,297,test: fix flaky export_v2_integration_test,"Adds a small sleep + retry around the async job assertion. Underlying race was in the test fixture, not product code. See ENG-398.",MERGED,p05,8,1,ENG-398
+issue,299,better error messages on export failure,See ENG-407. 'export failed' with no reason is not actionable for support or customers.,OPEN,p01,8,0,ENG-407
+pr,301,chore: bump worker pool size for export jobs,"Small mitigation while ENG-412 is in progress, gives more headroom for large exports. Not a real fix.",MERGED,p02,4,1,ENG-412
+issue,303,sales demo workspace is stale,"See ENG-430. Demo data hasn't been refreshed since v1, doesn't showcase v2 features well.",OPEN,p10,6,0,ENG-430
+pr,305,fix: slow analytics dashboard queries,Adds a missing index that the tuesday migration should have included. See ENG-413.,MERGED,p05,2,1,ENG-413
+issue,307,evaluate export throughput at 200k rows,Follow-up benchmarking task once #288 lands. See ENG-433.,OPEN,p01,1,0,ENG-433

@@ -1,0 +1,23 @@
+msg_id,channel,author_person_id,text,days_ago,thread_parent_id
+sl001,#eng,p02,"shipped v2!!! 🎉🎉 export v2 is officially live for all workspaces. csv/json exports now run as background jobs w/ a progress bar instead of locking up the UI. huge effort from the whole team, proud of yall",9,
+sl002,#eng,p01,"🎉 tho lil heads up - still chasing a timeout on workspaces w/ 50k+ rows, don't wanna call that part fully solved yet. tracking in ENG-412, opened a PR but need review",9,sl001
+sl003,#eng,p06,"noted, adding a line to the spec doc so it's not a surprise later",9,sl001
+sl004,#general,p07,congrats on shipping v2 team!! customers have been asking for this for months,8,
+sl005,#eng,p05,"deploy went smooth, nothing weird in sentry so far (knock on wood)",9,
+sl006,#support,p03,"heads up - northstar analytics is reporting export hanging again on their workspace, opening a ticket to track",3,
+sl007,#support,p09,"same customer (northstar) emailed again this morning, they say it's still broken on their end, export just spins forever",2,sl006
+sl008,#support,p03,"northstar just replied to the ticket - export is STILL timing out on their prod workspace (~80k rows in it). they're heated, said ""you told us this shipped last week"" and are now asking about a refund conversation",1,sl006
+sl009,#eng,p01,"yeah i saw the northstar ticket come thru. PR is up (#288) but it needs review before we can merge, sorry this is dragging",1,
+sl010,#support,p04,"got northstar on the phone just now. still frustrated but said they'll hold off on escalating if we can give them a real date this time, not another 'shipped'",1,sl008
+sl011,#eng,p02,"can someone get eyes on PR288 today pls, this is actively affecting a paying customer",1,
+sl012,#eng,p05,"on it, pulling it down now",1,sl011
+sl013,#general,p10,"demoed export v2 to a prospect this morning, they loved the progress bar. def a differentiator vs the competition",7,
+sl014,#eng,p08,"frontend for the progress bar is merged, using websocket updates instead of polling so it should feel snappier",10,
+sl015,#support,p03,"closed out 3 tickets today, mostly folks confused by the new export UI but fine after a quick walkthrough",5,
+sl016,#general,p07,"reminder: all-hands this friday 10am, will cover q3 roadmap + support metrics",4,
+sl017,#eng,p01,anyone else seeing slow queries on the internal analytics dashboard today? unrelated to export afaik,6,
+sl018,#eng,p05,"yeah looking into it, probably the new index migration from tuesday",6,sl017
+sl019,#product,p06,"export v2 spec is updated w/ final status, linking here for anyone who missed the announcement: notion.so/meridian/export-v2-spec",9,
+sl020,#support,p09,"another customer (acme corp) asking if csv export supports custom delimiters, told them yes it's been supported since v1.4",3,
+sl021,#eng,p02,"weekly eng sync moved to 2pm this week, calendar invites updated",12,
+sl022,#support,p04,"northstar's renewal is up in 6 weeks fyi, this timing is rough given the ticket",1,sl008
