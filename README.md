@@ -108,6 +108,22 @@ registrations and five ways to be stuck, and it makes the product undemonstrable
 anyone who has not already done that setup. The credential spec is shaped so an OAuth
 callback could fill the same fields later.
 
+## Connect your own systems
+
+Five built-in connectors is a demo. The sources that matter most to a company — its own
+database, its internal wiki, the ticketing service somebody wrote in 2015 — will never
+ship as a first-party integration. So there are three ways in: a **SQL source** (no
+code), a **REST source** (no code), or a **Python file** implementing the six methods.
+
+**A custom source is not trusted, it is tested.** Registering one runs the same
+behavioural conformance suite the five built-ins pass, and reports exactly which
+guarantees hold. A source that returns uncited evidence, or invents records instead of
+returning nothing, is reported as failing and is **not wired in** — it stays visible so
+it can be fixed, but it contributes no evidence until it conforms.
+
+See [ADAPTERS.md](ADAPTERS.md). `walnut_plugins/example_csv_source.py` is a complete
+worked example: a folder of text files as a fully conforming source.
+
 ## The control condition
 
 Every claim here is comparative, so there is something to compare against:
