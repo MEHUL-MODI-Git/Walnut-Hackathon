@@ -30,6 +30,7 @@ from ..connections import APP_SPECS, ConnectionManager
 from ..contradiction import detect_contradictions
 from ..playbook import build_plan
 from ..observability import Tracer
+from ..intent import parse_intent
 from ..plugins import SourceRegistry
 from . import views
 
@@ -49,6 +50,7 @@ class State:
     last_question: str = "is the dosing engine v2 fix actually shipped?"
     last_answer: Any = None
     last_results: list[Any] = field(default_factory=list)
+    last_intent: Any = None
     ingested: bool = False
 
     def rebuild_agent(self) -> WalnutAgent:
@@ -176,7 +178,7 @@ def investigate_get() -> HTMLResponse:
     return html(
         views.page_investigate(
             state.last_question, state.last_answer,
-            detect_contradictions(state.brain), state.last_results,
+            detect_contradictions(state.brain), state.last_results, state.last_intent,
         ),
         "Investigate", "inv",
     )
@@ -211,6 +213,31 @@ def act(conflict_id: str = Form("")) -> RedirectResponse:
     conflict = conflicts[0]
     plan = build_plan(conflict, state.brain)
     state.last_results = agent.execute_all(agent.propose_for_conflict(conflict, plan))
+    return back("/investigate")
+
+
+@app.post("/request")
+def propose_from_request(request_text: str = Form("", alias="request")) -> RedirectResponse:
+    """Turn a sentence into proposed actions — or into a question."""
+    agent = state.ensure()
+    # Prefer the evidence already on screen: "file an issue about this" names nothing
+    # retrievable, and the user plainly means what they are looking at.
+    hint = [facts[0] for _, facts in (state.last_answer.facts if state.last_answer else [])]
+    state.last_intent = parse_intent(
+        request_text, state.brain, state.all_adapters(), evidence_hint=hint or None
+    )
+    state.last_results = []
+    return back("/investigate")
+
+
+@app.post("/request/execute")
+def execute_request() -> RedirectResponse:
+    """Run the proposed actions through the same choke point as everything else."""
+    agent = state.ensure()
+    if state.last_intent is None or not state.last_intent.proposed:
+        return back("/investigate")
+    state.last_results = agent.execute_all(state.last_intent.actions)
+    state.last_intent = None
     return back("/investigate")
 
 

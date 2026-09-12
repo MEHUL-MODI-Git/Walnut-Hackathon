@@ -108,6 +108,30 @@ registrations and five ways to be stuck, and it makes the product undemonstrable
 anyone who has not already done that setup. The credential spec is shaped so an OAuth
 callback could fill the same fields later.
 
+## Ask it to do something
+
+```
+> file a Linear issue about MED-412 and comment on the PR
+
+  PROPOSE  linear.create_issue   ← "file a linear issue"
+  PROPOSE  github.comment        ← "comment on"
+
+> comment on something
+
+  ASK      "comment on" could mean github or linear. Name the app —
+           a guess here writes to the wrong system.
+```
+
+The parser is deliberately the **weakest** component, not the smartest. It proposes;
+it never executes — every proposal goes through the same choke point as anything else,
+so a misread sentence costs a refused action rather than a wrong write. It cannot
+invent justification, because `Action` will not construct without evidence. And
+ambiguity becomes a question rather than a coin flip.
+
+No model is involved: operations come from each adapter's own `capabilities()`, so a
+newly connected custom source becomes addressable in natural language the moment it
+declares what it can do.
+
 ## Connect your own systems
 
 Five built-in connectors is a demo. The sources that matter most to a company — its own

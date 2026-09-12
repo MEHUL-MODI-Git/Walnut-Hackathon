@@ -228,7 +228,7 @@ def _evidence_block(text: str, cite: str) -> str:
 
 
 def page_investigate(question: str, answer: Any, conflicts: list[Any],
-                     results: list[Any] | None) -> str:
+                     results: list[Any] | None, intent: Any = None) -> str:
     body = [f"""<h1>Investigate</h1>
 <p class="sub">Ask across all five systems. Every claim renders with its citation, or it
 does not render at all.</p>
@@ -236,6 +236,32 @@ does not render at all.</p>
   <input name="question" value="{esc(question)}" style="flex:1;min-width:260px"
          placeholder="e.g. is the dosing engine v2 fix actually shipped?">
   <button class="btn">Ask</button></div></form>"""]
+
+    body.append("""<h2>Or tell it what to do</h2>
+<form method="post" action="/request"><div class="row" style="margin-top:0">
+  <input name="request" style="flex:1;min-width:260px"
+         placeholder="e.g. file a Linear issue about MED-412 and comment on the PR">
+  <button class="btn">Propose</button></div></form>
+<p class="sub" style="margin-top:9px;color:var(--faint)">Proposed actions still go
+through the same checks as everything else — a misread sentence produces a refused
+action, never a wrong write. Ambiguity becomes a question rather than a guess.</p>""")
+
+    if intent is not None:
+        if intent.proposed:
+            body.append("<h2>Proposed</h2>")
+            for prop in intent.proposed:
+                body.append(f"""<div class="card" style="margin-bottom:10px">
+                  <h3>{esc(prop.action.app)}.{esc(prop.action.operation)}
+                    <span class="pill demo">from &ldquo;{esc(prop.matched_phrase)}&rdquo;</span></h3>
+                  <p>Justified by {esc(", ".join(f.node_id for f in prop.evidence))}</p>
+                  {"".join(_evidence_block(f.text, f.cite()) for f in prop.evidence)}
+                </div>""")
+            body.append("""<form method="post" action="/request/execute">
+              <div class="row"><button class="btn">Execute all proposed</button></div>
+              </form>""")
+        for question in intent.clarifications:
+            body.append(f'<div class="refusal"><div class="hd">Needs clarification</div>'
+                        f'<div style="color:var(--dim);font-size:12.5px">{esc(question)}</div></div>')
 
     if answer is not None:
         if answer.facts:
