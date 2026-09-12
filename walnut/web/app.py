@@ -30,6 +30,7 @@ from ..connections import APP_SPECS, ConnectionManager
 from ..contradiction import detect_contradictions
 from ..playbook import build_plan
 from ..observability import Tracer
+from ..plugins import SourceRegistry
 from . import views
 
 app = FastAPI(title="Walnut", docs_url=None, redoc_url=None)
@@ -43,6 +44,7 @@ class State:
     brain: Brain = field(default_factory=Brain)
     gate: QueueGate = field(default_factory=QueueGate)
     tracer: Tracer = field(default_factory=Tracer)
+    registry: SourceRegistry = field(default_factory=SourceRegistry)
     agent: WalnutAgent | None = None
     last_question: str = "is the dosing engine v2 fix actually shipped?"
     last_answer: Any = None
@@ -55,14 +57,22 @@ class State:
         Called after every connect/disconnect so the agent always reflects the live
         set of adapters rather than the set that existed at process start.
         """
+        adapters = self.all_adapters()
         executor = ActionExecutor(
-            self.connections.adapters(), self.brain, self.gate,
+            adapters, self.brain, self.gate,
             verify_freshness=False, tracer=self.tracer,
         )
-        self.agent = WalnutAgent(
-            self.connections.adapters(), self.brain, executor, tracer=self.tracer
-        )
+        self.agent = WalnutAgent(adapters, self.brain, executor, tracer=self.tracer)
         return self.agent
+
+    def all_adapters(self) -> dict[str, Any]:
+        """The five built-ins plus every custom source that PASSED conformance.
+
+        A failing custom source stays visible on the sources page so it can be fixed,
+        but it is not wired in — a company brain assembled from connectors that break
+        the guarantees is worse than one without them.
+        """
+        return {**self.connections.adapters(), **self.registry.usable_adapters()}
 
     def ensure(self) -> WalnutAgent:
         if self.agent is None:
@@ -263,6 +273,50 @@ def audit() -> HTMLResponse:
         ),
         "Audit", "audit",
     )
+
+
+# -- custom sources ---------------------------------------------------------
+
+
+@app.get("/sources", response_class=HTMLResponse)
+def sources() -> HTMLResponse:
+    return html(
+        views.page_sources(state.registry.all(), str(state.registry.plugin_dir)),
+        "Sources", "src",
+    )
+
+
+@app.post("/sources/add")
+async def add_source(request: Request) -> RedirectResponse:
+    """Register a declarative source and validate it against the conformance suite."""
+    form = {k: str(v).strip() for k, v in (await request.form()).items()}
+    spec: dict[str, Any] = {k: v for k, v in form.items() if v}
+    for listish in ("text_columns", "text_fields"):
+        if listish in spec:
+            spec[listish] = [p.strip() for p in spec[listish].split(",") if p.strip()]
+    if auth := spec.pop("auth_header", None):
+        spec["headers"] = {"Authorization": auth}
+    if spec.get("name"):
+        state.registry.add_spec(spec)
+        state.ingested = False
+        state.rebuild_agent()
+    return back("/sources")
+
+
+@app.post("/sources/rescan")
+def rescan_sources() -> RedirectResponse:
+    state.registry.discover_plugins()
+    state.ingested = False
+    state.rebuild_agent()
+    return back("/sources")
+
+
+@app.post("/sources/{name}/remove")
+def remove_source(name: str) -> RedirectResponse:
+    state.registry.remove(name)
+    state.ingested = False
+    state.rebuild_agent()
+    return back("/sources")
 
 
 # -- evidence ---------------------------------------------------------------

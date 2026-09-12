@@ -11,3 +11,4 @@ build/
 .ruff_cache/
 .mypy_cache/
 runs/
+walnut_plugins/example_docs/

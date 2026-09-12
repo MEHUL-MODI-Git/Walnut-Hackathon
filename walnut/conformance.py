@@ -61,15 +61,26 @@ class ConformanceReport:
 
 
 def _check(report: ConformanceReport, name: str, fn: Any) -> Any:
+    """Run one check, recording the outcome either way.
+
+    The `return fn()` used to sit inside the `try`, so the `else` branch that records a
+    pass was unreachable and `passed` stayed empty forever. The checks still ran and
+    failures were still caught — but every report claimed zero passes, and nothing
+    caught it because `ok` is defined as "no failures". A green report that has
+    silently stopped counting is exactly the kind of vacuous evidence this suite exists
+    to prevent, so the pass count is now asserted in the tests.
+    """
     try:
-        return fn()
+        result = fn()
     except AssertionError as exc:
         report.failed.append((name, str(exc) or "assertion failed"))
+        return None
     except Exception as exc:  # noqa: BLE001 - a crash is a conformance failure
         report.failed.append((name, f"{type(exc).__name__}: {exc}"))
-    else:
-        report.passed.append(name)
-    return None
+        return None
+
+    report.passed.append(name)
+    return result
 
 
 def run_conformance(

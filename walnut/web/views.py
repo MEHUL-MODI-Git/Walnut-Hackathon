@@ -120,6 +120,7 @@ def layout(title: str, body: str, active: str = "") -> str:
   <nav>
     {nav("/", "dash", "Overview")}
     {nav("/connections", "conn", "Connections")}
+    {nav("/sources", "src", "Sources")}
     {nav("/investigate", "inv", "Investigate")}
     {nav("/approvals", "appr", "Approvals")}
     {nav("/evidence", "ev", "Evidence")}
@@ -403,3 +404,86 @@ because ingested content can never justify a state-changing action regardless of
 it says, so a missed pattern costs the explanation, not the outcome. Contradiction
 detection is lexical and will miss anything phrased without status vocabulary. Identity
 resolution is deterministic, not calibrated.</div>"""
+
+
+def page_sources(sources: list[Any], plugin_dir: str) -> str:
+    """Custom sources: bring your own database, API, or Python adapter."""
+    cards = ""
+    for s in sources:
+        status = s.status()
+        pill = {"ready": "connected", "failing": "error",
+                "error": "error", "unchecked": "demo"}[status]
+        detail = f'<p>{esc(s.summary())}</p>'
+        if s.report and s.report.failed:
+            detail += ('<div class="note"><b>Not yet conforming.</b><br>'
+                       + "<br>".join(f"{esc(n)}: {esc(w)}" for n, w in s.report.failed[:5])
+                       + "</div>")
+        if s.error:
+            detail += f'<div class="note"><b>Error.</b> {esc(s.error[:400])}</div>'
+        cards += f"""<div class="card">
+          <h3>{esc(s.name)} <span class="pill {pill}">{esc(status)}</span></h3>
+          <p style="color:var(--faint)">{esc(s.kind)} source</p>{detail}
+          <form method="post" action="/sources/{esc(s.name)}/remove">
+            <button class="btn danger">Remove</button></form></div>"""
+
+    return f"""<h1>Custom sources</h1>
+<p class="sub">The five built-in connectors are a starting point, not the product. A
+company's real estate is its own databases, its internal wiki, and a ticketing service
+somebody wrote years ago — none of which will ever ship as a first-party integration.</p>
+<p class="sub"><b>A custom source is not trusted, it is tested.</b> Registering one runs
+the same behavioural conformance suite the five built-in adapters pass, and reports
+exactly which guarantees hold. A source that returns uncited evidence, or invents
+records instead of returning nothing, is reported as failing before it can put anything
+into the brain.</p>
+
+<div class="grid">{cards or '<div class="empty">No custom sources yet.</div>'}</div>
+
+<h2>Add a database</h2>
+<div class="card"><form method="post" action="/sources/add">
+  <input type="hidden" name="kind" value="sql">
+  <label>Name</label><input name="name" placeholder="support_db">
+  <label>Connection string</label>
+  <input name="dsn" placeholder="sqlite:///./support.db">
+  <div class="where">SQLite works with no setup. Postgres and MySQL need their driver.</div>
+  <label>Query</label>
+  <input name="query" placeholder="SELECT id, subject, body, author, created_at FROM tickets">
+  <label>ID column</label><input name="id_column" placeholder="id">
+  <label>Text columns (comma separated)</label>
+  <input name="text_columns" placeholder="subject, body">
+  <label>Link template (optional)</label>
+  <input name="uri_template" placeholder="https://support.internal/ticket/{{id}}">
+  <div class="row"><button class="btn">Add and validate</button></div>
+</form>
+<div class="note"><b>Walnut never writes to your tables.</b> A SQL source is read-only;
+annotations go to a separate companion table it creates itself.</div></div>
+
+<h2>Add an internal API</h2>
+<div class="card"><form method="post" action="/sources/add">
+  <input type="hidden" name="kind" value="rest">
+  <label>Name</label><input name="name" placeholder="internal_wiki">
+  <label>Base URL</label><input name="base_url" placeholder="https://wiki.internal">
+  <label>List path</label><input name="list_path" placeholder="/api/articles">
+  <label>Item path (optional)</label>
+  <input name="item_path" placeholder="/api/articles/{{id}}">
+  <label>Records key (optional)</label>
+  <input name="records_key" placeholder="data.items">
+  <label>ID field</label><input name="id_field" placeholder="id">
+  <label>Text fields (comma separated)</label>
+  <input name="text_fields" placeholder="title, body">
+  <label>Auth header (optional)</label>
+  <input name="auth_header" placeholder="Bearer …">
+  <div class="row"><button class="btn">Add and validate</button></div>
+</form></div>
+
+<h2>Add anything else</h2>
+<div class="card">
+  <p>For a source with no SQL or HTTP surface, drop a Python file into
+  <code>{esc(plugin_dir)}/</code> implementing the six-method contract, exposing either
+  <code>build()</code> or <code>ADAPTER</code>. It is discovered, validated against the
+  same suite, and reported here.</p>
+  <p style="color:var(--faint)">Loading a plugin executes that file — the same trust
+  model as a pytest conftest. Point the directory only at code you would run yourself.</p>
+  <form method="post" action="/sources/rescan">
+    <div class="row"><button class="btn ghost">Rescan plugin directory</button></div>
+  </form>
+</div>"""
