@@ -28,6 +28,7 @@ from ..agent import WalnutAgent
 from ..brain import Brain
 from ..connections import APP_SPECS, ConnectionManager
 from ..contradiction import detect_contradictions
+from ..playbook import build_plan
 from ..observability import Tracer
 from . import views
 
@@ -189,23 +190,7 @@ def act(subject: str = Form("")) -> RedirectResponse:
         return back("/investigate")
 
     conflict = conflicts[0]
-    plan = [
-        {"app": "linear", "operation": "create_issue", "target": {"id": "AUTO-1"},
-         "payload": {"title": f"Contradiction on {subject}", "state": "Todo"},
-         "rationale": "File the contradiction as tracked work, with its evidence chain."},
-        {"app": "github", "operation": "comment", "target": {"id": "pull-288"},
-         "payload": {"body": f"Walnut: {subject} is cited as shipped elsewhere."},
-         "rationale": "Tell the engineer where the false claim is being made."},
-        {"app": "slack", "operation": "post_reply", "target": {"id": "sl006"},
-         "payload": {"text": "Confirmed still open — evidence attached."},
-         "rationale": "Close the loop with whoever raised it."},
-        {"app": "notion", "operation": "set_property", "target": {"id": "nt001"},
-         "payload": {"status": "Disputed"},
-         "rationale": "Repair the stale fact that caused the confusion."},
-        {"app": "email", "operation": "send_email", "target": {"id": "reply-1"},
-         "payload": {"to": "customer@example.com", "subject": f"Re: {subject}"},
-         "rationale": "Reply to the customer. Customer-facing, so it must be gated."},
-    ]
+    plan = build_plan(conflict, state.brain)
     state.last_results = agent.execute_all(agent.propose_for_conflict(conflict, plan))
     return back("/investigate")
 

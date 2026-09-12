@@ -22,6 +22,7 @@ from walnut.actions.governance import QueueGate, Refusal
 from walnut.adapters.fixture import load_all_fixtures, load_identities
 from walnut.agent import WalnutAgent
 from walnut.contradiction import detect_contradictions
+from walnut.playbook import build_plan
 
 RULE = "─" * 78
 
@@ -80,36 +81,22 @@ def act2(agent: WalnutAgent, gate: QueueGate) -> None:
     # real and stay on the list — a brain that reports only the conflict it went
     # looking for is just a search engine with extra steps.
     def score(c) -> int:
+        # Prefer the written record disagreeing with the systems that build the work,
+        # and prefer both sides being authoritative. Deliberately no hard-coded
+        # subject: the seed data changes, the shape of the interesting conflict does
+        # not.
         apps = set(c.apps)
         return (
             ("notion" in apps and bool(apps & {"github", "linear"})) * 4
-            + (c.subject == "feature:exportv2") * 2
-            + (c.left.is_primary and c.right.is_primary)
+            + (c.left.is_primary and c.right.is_primary) * 2
+            + c.subject.startswith("feature:")
         )
 
     conflict = max(conflicts, key=score)
     print("\nthe one the customer is asking about:\n")
     print(conflict.render())
 
-    plan = [
-        {"app": "linear", "operation": "create_issue", "target": {"id": "ENG-NEW"},
-         "payload": {"title": "Export v2 status is contradicted by an open PR",
-                     "state": "Todo"},
-         "rationale": "File the contradiction as tracked work, with its evidence chain."},
-        {"app": "github", "operation": "comment", "target": {"id": "pull-288"},
-         "payload": {"body": "Walnut: this PR is cited as shipped elsewhere. It is open."},
-         "rationale": "Tell the engineer where the false claim is being made."},
-        {"app": "slack", "operation": "post_reply", "target": {"id": "sl006"},
-         "payload": {"text": "Confirmed still open — evidence attached."},
-         "rationale": "Close the loop with whoever asked."},
-        {"app": "notion", "operation": "set_property", "target": {"id": "nt001"},
-         "payload": {"status": "Disputed"},
-         "rationale": "Repair the stale fact that caused the confusion."},
-        {"app": "email", "operation": "send_email", "target": {"id": "em-reply"},
-         "payload": {"to": "contact@northstar-analytics.com",
-                     "subject": "Re: export timeouts"},
-         "rationale": "Reply to the customer. Customer-facing, so it must be gated."},
-    ]
+    plan = build_plan(conflict, agent.brain)
 
     print(f"\nproposing {len(plan)} actions across {len({p['app'] for p in plan})} apps\n")
     for result in agent.execute_all(agent.propose_for_conflict(conflict, plan)):
@@ -150,7 +137,7 @@ def act3(agent: WalnutAgent) -> None:
     from walnut.contract import Action
 
     for op, app, target, payload in [
-        ("set_state", "linear", {"id": "ENG-412"}, {"state": "Done"}),
+        ("set_state", "linear", {"id": "any"}, {"state": "Done"}),
         ("send_email", "email", {"id": "bulk"}, {"to": "customers@"}),
     ]:
         result = agent.executor.execute(
@@ -163,14 +150,23 @@ def act3(agent: WalnutAgent) -> None:
         print()
 
     print("the same document CAN justify quarantining itself:\n")
-    result = agent.executor.execute(
+    quarantine = agent.executor.execute(
         Action(app="notion", operation="append_block", target={"id": fact.pointer.locator["id"]},
                payload={"text": "[Walnut] This page contains injected instructions."},
                justified_by=(fact.node_id,),
                rationale="quarantine the document")
     )
-    print(f"  {'REFUSED' if isinstance(result, Refusal) else 'done'}  "
+    print(f"  {'REFUSED' if isinstance(quarantine, Refusal) else 'done'}  "
           "notion.append_block — labelling the poison is permitted; acting on it is not.")
+
+    # The control condition. Comparative claims need something to compare against, and
+    # the honest comparison is this same codebase with the governance layer removed.
+    from walnut.adapters.fixture import load_all_fixtures
+    from walnut.baseline import compare
+
+    print(f"\n{RULE}")
+    print(compare(agent.brain, load_all_fixtures(),
+                  [*agent.executor.ledger.refusals, *agent.executor.ledger.history()]).render())
 
 
 def main() -> int:
