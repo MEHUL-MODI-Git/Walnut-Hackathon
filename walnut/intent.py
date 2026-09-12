@@ -37,6 +37,7 @@ from dataclasses import dataclass, field
 
 from .brain import Brain, Fact
 from .contract import Action, Adapter
+from .targeting import target_for as _resolve_target
 
 __all__ = ["Intent", "ProposedAction", "parse_intent"]
 
@@ -323,7 +324,10 @@ def parse_intent(
     return intent
 
 
-def _target_for(app: str, operation: str, evidence: list[Fact]) -> dict[str, object] | None:
+def _target_for(
+    app: str, operation: str, evidence: list[Fact],
+    context: dict[str, object] | None = None,
+) -> dict[str, object] | None:
     """Aim the action at a real record.
 
     Targets come from the evidence's own `locator`, which every adapter populates with
@@ -331,17 +335,13 @@ def _target_for(app: str, operation: str, evidence: list[Fact]) -> dict[str, obj
     guessed id produces an action that fails at the API boundary with an error looking
     like a connector bug.
     """
-    creating = operation in {"create_issue", "post_message", "send_email", "save_draft"}
+    resolved = _resolve_target(app, operation, evidence, context=context)
+    if resolved:
+        return resolved
+    # Fixtures and custom sources address records by id; keep that path working when
+    # the app-specific translation has nothing to add.
     from_app = [f for f in evidence if f.app == app]
-
-    if creating:
-        # Nothing to aim at: these make a new record. Carry any same-app context we
-        # have so the adapter can thread it (a channel, a repo) without guessing.
-        return dict(from_app[0].pointer.locator) if from_app else {"id": "new"}
-
-    if not from_app:
-        return None
-    return dict(from_app[0].pointer.locator)
+    return dict(from_app[0].pointer.locator) if from_app else None
 
 
 def _payload_for(operation: str, request: str, evidence: list[Fact]) -> dict[str, object]:

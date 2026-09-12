@@ -234,6 +234,8 @@ Recorded because "show how you know it works" should include how you know it *di
 | Adversarial review | The grounding wall exempted every single-digit numeral. "3 patients were harmed" rendered as a cited fact; "12 outages" was correctly refused, so the check looked like it worked |
 | Adversarial review | `act_captures_prior_state` never inspected `prior_state`, and `undo_restores` never checked restoration |
 | Adversarial review | GitHub's repo and Notion's database were collected in the connect form, validated, then dropped — ingestion silently read whichever repo the token saw first |
+| **Pre-flight for live wiring** | **Every plan aimed at the wrong coordinates.** The planner emitted `{"id": …}` for all five apps while the live adapters read `channel`/`ts`, `owner`/`repo`/`number`, `page_id`, `issue_id`, `folder`/`message_id`. It worked perfectly against fixtures, which do read `id`. The first live connection would have raised `KeyError` on step two of a five-app plan — after step one had already written to a real system |
+| Pre-flight for live wiring | The fix then silently deleted two steps from the demo plan, because a fixture locator carries none of the live coordinates. Fallback now distinguishes an id-addressed locator from a live one merely missing a key |
 
 ## Layout
 
