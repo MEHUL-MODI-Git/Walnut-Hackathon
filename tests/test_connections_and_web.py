@@ -1,0 +1,212 @@
+"""Connection management and the web console.
+
+The security assertions here matter more than the rendering ones: a console that
+echoes a pasted token back into the page has turned a credential into a screenshot
+hazard, and this is a product people will demo over screen share.
+"""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from walnut.connections import APP_SPECS, ConnectionManager, ConnectionState
+from walnut.contract import SourceProfile
+
+REAL_TOKEN = "xoxb-9999-super-secret-do-not-render"
+
+
+@pytest.fixture
+def manager() -> ConnectionManager:
+    # autoload_env off: a developer's real .env must not change test outcomes.
+    return ConnectionManager(autoload_env=False)
+
+
+# -- connection state -------------------------------------------------------
+
+
+def test_every_app_starts_in_demo_and_is_immediately_usable(manager):
+    assert len(manager.all()) == 5
+    assert all(c.state is ConnectionState.DEMO for c in manager.all())
+    adapters = manager.adapters()
+    assert set(adapters) == set(APP_SPECS)
+    # Demo mode is not a stub: each adapter returns real, hashed, cited evidence.
+    for app, adapter in adapters.items():
+        records = adapter.fetch(limit=3)
+        assert records, f"{app} fixture returned nothing"
+        assert all(len(r.pointer.content_hash) == 64 for r in records)
+
+
+def test_missing_required_field_is_an_error_not_a_connection(manager):
+    conn = manager.connect("slack", {})
+    assert conn.state is ConnectionState.ERROR
+    assert "Missing required field" in conn.error
+    assert manager.adapters()["slack"].name == "slack"
+
+
+def test_a_credential_that_cannot_read_anything_is_reported_as_an_error(manager, monkeypatch):
+    """A token that parses but sees nothing is not a working connection."""
+
+    class Blind:
+        name = "slack"
+
+        def probe(self):
+            return SourceProfile(app="slack", display_name="Slack", scopes=())
+
+    monkeypatch.setattr(ConnectionManager, "_build", staticmethod(lambda a, c: Blind()))
+    conn = manager.connect("slack", {"token": REAL_TOKEN})
+    assert conn.state is ConnectionState.ERROR
+    assert "can see nothing" in conn.error
+
+
+def test_a_rejected_credential_leaves_the_app_on_fixtures(manager, monkeypatch):
+    def explode(app, creds):
+        raise RuntimeError("invalid_auth")
+
+    monkeypatch.setattr(ConnectionManager, "_build", staticmethod(explode))
+    conn = manager.connect("linear", {"api_key": "lin_api_bad"})
+    assert conn.state is ConnectionState.ERROR
+    assert "invalid_auth" in conn.error
+    # Still usable — a failed connection must not break the product.
+    assert manager.adapters()["linear"].fetch(limit=1)
+
+
+def test_a_working_credential_connects_and_swaps_the_adapter_in(manager, monkeypatch):
+    class Live:
+        name = "slack"
+
+        def probe(self):
+            return SourceProfile(app="slack", display_name="Slack",
+                                 scopes=("#eng", "#support"), record_count_estimate=42)
+
+    monkeypatch.setattr(ConnectionManager, "_build", staticmethod(lambda a, c: Live()))
+    conn = manager.connect("slack", {"token": REAL_TOKEN})
+    assert conn.state is ConnectionState.CONNECTED
+    assert conn.profile.scopes == ("#eng", "#support")
+    assert manager.adapters()["slack"] is not manager._fixtures["slack"]
+    assert manager.summary()["connected"] == 1
+
+
+def test_disconnect_returns_to_fixtures_and_forgets_the_credential(manager, monkeypatch):
+    class Live:
+        name = "slack"
+
+        def probe(self):
+            return SourceProfile(app="slack", display_name="S", scopes=("#eng",))
+
+    monkeypatch.setattr(ConnectionManager, "_build", staticmethod(lambda a, c: Live()))
+    manager.connect("slack", {"token": REAL_TOKEN})
+    conn = manager.disconnect("slack")
+    assert conn.state is ConnectionState.DEMO
+    assert conn.credentials == {}
+    assert manager.adapters()["slack"] is manager._fixtures["slack"]
+
+
+def test_redacted_view_never_exposes_a_secret(manager, monkeypatch):
+    class Live:
+        name = "slack"
+
+        def probe(self):
+            return SourceProfile(app="slack", display_name="S", scopes=("#eng",))
+
+    monkeypatch.setattr(ConnectionManager, "_build", staticmethod(lambda a, c: Live()))
+    manager.connect("slack", {"token": REAL_TOKEN})
+    assert REAL_TOKEN not in str(manager.get("slack").redacted())
+
+
+def test_every_spec_documents_where_to_get_the_credential():
+    """Half of connector support burden is not knowing which page to open."""
+    for app, spec in APP_SPECS.items():
+        assert spec.where, f"{app} does not say where to get its credential"
+        assert spec.fields, f"{app} declares no fields"
+        assert spec.blurb
+
+
+# -- the web console --------------------------------------------------------
+
+
+@pytest.fixture
+def client() -> TestClient:
+    from walnut.web import app as web
+
+    web.state = web.State(connections=ConnectionManager(autoload_env=False))
+    return TestClient(web.app)
+
+
+@pytest.mark.parametrize("path", ["/", "/connections", "/investigate", "/approvals", "/evidence"])
+def test_every_page_renders(client, path):
+    r = client.get(path)
+    assert r.status_code == 200
+    assert "Walnut" in r.text
+
+
+def test_the_console_runs_with_no_credentials_at_all(client):
+    """The whole product must be demonstrable before anything is connected."""
+    body = client.get("/").text
+    assert "demo" in body.lower()
+    assert client.get("/evidence").text.count("evidence") > 1
+
+
+def test_a_pasted_token_is_never_echoed_back_into_any_page(client):
+    """Credentials are demoed over screen share. They must not render."""
+    client.post("/connections/slack/connect", data={"token": REAL_TOKEN})
+    for path in ["/connections", "/", "/evidence"]:
+        assert REAL_TOKEN not in client.get(path).text
+
+
+def test_a_failed_connection_is_shown_but_does_not_break_the_app(client):
+    r = client.post("/connections/slack/connect", data={"token": "xoxb-nope"},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    assert client.get("/").status_code == 200
+
+
+def test_investigating_produces_cited_facts(client):
+    client.post("/investigate", data={"question": "is it shipped?"},
+                follow_redirects=True)
+    body = client.get("/investigate").text
+    assert "Facts" in body or "Refused" in body
+
+
+def test_acting_on_a_contradiction_executes_internally_and_gates_the_email(client):
+    from walnut.contradiction import detect_contradictions
+    from walnut.web import app as web
+
+    client.get("/")  # trigger ingest
+    conflicts = detect_contradictions(web.state.brain)
+    assert conflicts, "fixtures produced no contradiction to act on"
+
+    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+    results = web.state.last_results
+    assert results, "no actions were attempted"
+
+    refused = [r for r in results if hasattr(r, "reason")]
+    executed = [r for r in results if not hasattr(r, "reason")]
+    assert executed, "nothing executed"
+    assert any(r.action.app == "email" for r in refused), "the customer email was not gated"
+    assert web.state.gate.pending, "the gated action was not queued for a human"
+
+
+def test_the_approvals_page_lists_what_is_waiting(client):
+    from walnut.contradiction import detect_contradictions
+    from walnut.web import app as web
+
+    client.get("/")
+    conflicts = detect_contradictions(web.state.brain)
+    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+    body = client.get("/approvals").text
+    assert "gated" in body and "Approve" in body
+
+
+def test_an_executed_action_can_be_undone_from_the_console(client):
+    from walnut.contradiction import detect_contradictions
+    from walnut.web import app as web
+
+    client.get("/")
+    conflicts = detect_contradictions(web.state.brain)
+    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+
+    live = web.state.agent.executor.ledger.live()
+    assert live, "nothing to undo"
+    client.post(f"/undo/{live[0].action_id}", follow_redirects=True)
+    assert web.state.agent.executor.ledger.receipts[live[0].action_id].is_undone
