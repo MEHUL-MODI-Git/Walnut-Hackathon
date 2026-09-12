@@ -159,6 +159,11 @@ pytest -q          # all green: no network, no credentials
   bug in the Slack adapter during the build.
 - **Tests run with no network and no credentials**, so they are also the regression
   suite during the hackathon window.
+- **The graph dependency is genuinely swappable, and that is tested rather than
+  asserted.** `walnut/graphstore.py` carries a dependency-free `SimpleGraph`, and the
+  entire suite runs green under `WALNUT_GRAPH=simple`. A broken Semantica import at 3am
+  costs the provenance features, not the demo. (It is also 4x faster, which is its own
+  finding about how load-bearing the dependency really was.)
 - **`FixtureAdapter` is held to the same suite as the live adapters**, which makes it a
   diagnostic instrument as well as an offline fallback: if it passes and a live adapter
   does not, the bug is in the live adapter.
