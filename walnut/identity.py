@@ -165,6 +165,10 @@ def resolve_identities(identities: list[Identity]) -> ResolutionReport:
     clusters: list[Person] = []
     by_email: dict[str, Person] = {}
 
+    # A blank handle is a missing cell, not a person. Clustering them produced junk
+    # Persons with empty names and colliding ids.
+    identities = [i for i in identities if (i.handle or "").strip()]
+
     # Pass 1 — CERTAIN: shared verified email address.
     for ident in identities:
         email = ident.email.strip().lower()
@@ -211,36 +215,70 @@ def resolve_identities(identities: list[Identity]) -> ResolutionReport:
                 break
             best, best_reason = person, reason
 
-        if best is None:
+        def as_singleton(reason: str, band: MatchBand) -> None:
+            """Materialise an identity that was not merged.
+
+            Every identity leaves this function represented somewhere. Previously the
+            uncertain exits appended to `needs_review` and returned without creating a
+            Person, so an identity with *weak* evidence was less present in the graph
+            than one with *none* — seven Notion accounts silently vanished, and
+            `handle_in("notion")` returned None for people who plainly had one.
+            """
             clusters.append(
                 Person(
                     person_id=f"p:{ident.key()}",
                     canonical_name=ident.display_name or ident.handle,
                     identities=[ident],
-                    band=MatchBand.CERTAIN,
-                    evidence=["singleton — no cross-app match found"],
+                    band=band,
+                    evidence=[reason],
                 )
             )
+
+        if best is None:
+            as_singleton("singleton — no cross-app match found", MatchBand.CERTAIN)
             continue
 
         if ambiguous:
             report.needs_review.append(
                 (ident, best.identities[0], "matches more than one person")
             )
+            as_singleton("ambiguous — matched more than one person", MatchBand.UNCERTAIN)
             continue
 
-        # A name match corroborated by a matching handle is LIKELY; either alone is
-        # UNCERTAIN and goes to a human rather than into the graph.
-        corroborated = _initial_form_matches(
-            ident.display_name, best.canonical_name
-        ) and _handle_supports(ident.handle, best.canonical_name)
+        # Corroboration means two INDEPENDENT signals. When an app gives us the display
+        # name as the handle there is only one signal wearing two hats, and calling that
+        # corroboration would let a single weak match merge accounts.
+        name_match = _initial_form_matches(ident.display_name, best.canonical_name)
+        independent_handle = _normalise(ident.handle) != _normalise(ident.display_name)
+        corroborated = (
+            name_match and independent_handle
+            and _handle_supports(ident.handle, best.canonical_name)
+        )
 
-        if corroborated:
+        # Some apps expose only a display name — Linear and Notion have no separate
+        # handle to corroborate with. Demanding two independent fields there is not
+        # strictness, it is a requirement no record can ever satisfy, and it would
+        # discard every account from those apps. A strong name match alone is accepted,
+        # but it merges at LIKELY and says "name only" in its evidence, so a human
+        # auditing the merge can see exactly how thin it is. The ambiguity guard above
+        # still refuses when more than one person could match.
+        name_only = name_match and not independent_handle
+
+        if corroborated or name_only:
             best.identities.append(ident)
-            best.band = MatchBand.LIKELY if best.band is not MatchBand.CERTAIN else best.band
-            best.evidence.append(best_reason + " (corroborated)")
+            # A cluster is only as strong as its weakest link. An inferential merge —
+            # however well corroborated — means this cluster is no longer wholly
+            # backed by verified identifiers, and the band has to say so. The previous
+            # wording kept CERTAIN whenever the cluster was already CERTAIN, which is
+            # every cluster, making LIKELY unreachable and the field meaningless.
+            best.band = MatchBand.LIKELY
+            best.evidence.append(
+                best_reason
+                + (" (corroborated, inferential)" if corroborated else " (name only)")
+            )
         else:
             report.needs_review.append((ident, best.identities[0], best_reason))
+            as_singleton(f"held for review: {best_reason}", MatchBand.UNCERTAIN)
 
     report.resolved = clusters
     return report

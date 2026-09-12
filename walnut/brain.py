@@ -3,8 +3,9 @@
 Semantica is doing the heavy lifting underneath — graph storage, W3C PROV-O
 provenance, decision chains, temporal state, retraction tombstones. **Every call
 into it lives in this one file.** That is deliberate: if Semantica misbehaves under
-time pressure, swapping to a dict-and-networkx backend touches this module and
-nothing else. The rest of Walnut only ever sees `Brain`.
+time pressure, `walnut/graphstore.py` provides a dependency-free `SimpleGraph`
+implementing the same small surface, and the entire test suite is run against it in
+`tests/test_graph_backends.py`. The rest of Walnut only ever sees `Brain`.
 
 What the brain guarantees to callers:
 
@@ -22,9 +23,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from semantica.context import ContextGraph
-
 from .contract import Evidence, SourcePointer, utcnow
+from .graphstore import GraphBackend, backend_name, build_backend
 
 __all__ = ["Brain", "Contradiction", "Fact"]
 
@@ -71,8 +71,10 @@ class Contradiction:
 class Brain:
     """The company brain. One graph, many apps, every fact cited."""
 
-    def __init__(self) -> None:
-        self._g = ContextGraph()
+    def __init__(self, backend: GraphBackend | None = None) -> None:
+        # Injectable so the whole suite can be run against the fallback, which is the
+        # only way the "swappable" claim in this module's docstring means anything.
+        self._g = backend if backend is not None else build_backend()
         self._facts: dict[str, Fact] = {}
         """Sidecar index. Semantica stores the graph; we keep the typed view so a
         caller never has to unpack its nested dict shape."""
@@ -124,15 +126,36 @@ class Brain:
         return self._facts.get(node_id)
 
     def search(self, text: str, limit: int = 10) -> list[Fact]:
-        """Free-text search across everything the brain holds."""
-        hits = self._g.query(text, limit=limit) or []
+        """Free-text search across everything the brain holds.
+
+        Backend results first, then a substring sweep over the typed index. The sweep
+        is not redundancy for its own sake: Semantica matches against node ids and
+        content rather than the text attribute we store, so a term that plainly appears
+        in an ingested record could return nothing at all. Two backends that disagree
+        about whether a word is findable would make every downstream result depend on
+        which graph library happened to be installed.
+        """
         out: list[Fact] = []
-        for hit in hits:
+        seen: set[str] = set()
+
+        for hit in self._g.query(text, limit=limit) or []:
             node = hit.get("node", hit)
             fact = self._facts.get(node.get("id", ""))
-            if fact is not None:
+            if fact is not None and fact.node_id not in seen:
+                seen.add(fact.node_id)
                 out.append(fact)
-        return out
+
+        needle = text.lower().strip()
+        if needle:
+            for fact in self._facts.values():
+                if len(out) >= limit:
+                    break
+                if fact.node_id in seen:
+                    continue
+                if needle in fact.text.lower() or needle in fact.node_id.lower():
+                    seen.add(fact.node_id)
+                    out.append(fact)
+        return out[:limit]
 
     def by_app(self, app: str) -> list[Fact]:
         return [f for f in self._facts.values() if f.app == app]
@@ -195,6 +218,7 @@ class Brain:
     def stats(self) -> dict[str, Any]:
         s = dict(self._g.stats() or {})
         s["facts_indexed"] = len(self._facts)
+        s.setdefault("backend", backend_name())
         s["apps"] = sorted({f.app for f in self._facts.values()})
         return s
 

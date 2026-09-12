@@ -91,6 +91,19 @@ class GroundedAnswer:
         return "\n".join(lines).rstrip()
 
 
+def _looks_like_a_version(number: str, text: str) -> bool:
+    """Is this numeral part of a version or identifier rather than a quantity?
+
+    `v2`, `#288`, `MED-412`. Excluded by the character immediately before them, which
+    is context, not a length heuristic.
+    """
+    for m in re.finditer(re.escape(number), text):
+        before = text[max(0, m.start() - 1):m.start()]
+        if before not in {"v", "V", "#", "-"}:
+            return False
+    return True
+
+
 def _unsupported_numbers(claim_text: str, evidence: list[Fact]) -> list[str]:
     """Numerals in the claim that appear nowhere in its supporting evidence.
 
@@ -101,7 +114,12 @@ def _unsupported_numbers(claim_text: str, evidence: list[Fact]) -> list[str]:
     corpus = " ".join(f.text for f in evidence)
     present = {m.group(0).rstrip(".,") for m in _DIGITS.finditer(corpus)}
     claimed = {m.group(0).rstrip(".,") for m in _DIGITS.finditer(claim_text)}
-    return sorted(n for n in claimed - present if len(n) > 1)
+    # No length filter. An earlier version skipped single-digit tokens, which in a
+    # clinical corpus exempts exactly the most dangerous fabrications — "3 patients
+    # were harmed" rendered as a cited fact against evidence containing no digits at
+    # all, while "12 outages" was correctly refused. The check looked like it worked.
+    # Version-like tokens are excluded by context, not by length.
+    return sorted(n for n in claimed - present if not _looks_like_a_version(n, claim_text))
 
 
 def ground(answer: Answer, brain: Brain, *, check_numbers: bool = True) -> GroundedAnswer:

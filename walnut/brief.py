@@ -25,7 +25,7 @@ from .actions.governance import QueueGate, Refusal
 from .adapters.fixture import load_all_fixtures, load_identities
 from .agent import WalnutAgent
 from .brain import Brain
-from .contract import Action
+from .contract import Action, ActionTier
 from .contradiction import detect_contradictions
 
 __all__ = ["Brief", "generate"]
@@ -247,8 +247,23 @@ def generate(*, run_tests: bool = True) -> Brief:
         if done:
             undone = executor.undo(done[0].action_id)
             brief.checks.append(Check(
-                "Every executed action is reversible",
+                "Every reversible action executed on this run was reversed",
                 undone.is_undone, f"{undone.action_id} undone via its own adapter",
+            ))
+            # The universal claim would be false: send_email cannot be recalled, and
+            # the email adapter raises rather than pretending. That is the reason the
+            # operation is gated, so assert the pairing instead of the universal.
+            from .actions.governance import is_reversible
+
+            irreversible_are_gated = all(
+                adapters["email"].capabilities().tier_of(op) >= ActionTier.GATED
+                for op in adapters["email"].capabilities().operations
+                if not is_reversible("email", op)
+            )
+            brief.checks.append(Check(
+                "Every irreversible operation is gated behind a human",
+                irreversible_are_gated,
+                "email.send_email cannot be undone, so it cannot execute unapproved",
             ))
 
     # The refusal — the central claim.

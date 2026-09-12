@@ -473,6 +473,15 @@ class EmailAdapter:
         folder = action.target["folder"]
         message_id = action.target["message_id"]
         flag = action.payload["flag"]
+        # An allow-list, because this value goes straight into an IMAP STORE. The
+        # destructive flags (\\Deleted in particular) are not reversible annotations:
+        # on a server that expunges, setting one loses the message.
+        _ALLOWED_FLAGS = {"\\Seen", "\\Flagged", "\\Answered", "\\Draft", "walnut"}
+        if flag not in _ALLOWED_FLAGS and not flag.startswith("walnut"):
+            raise EmailAdapterError(
+                f"refusing to set IMAP flag {flag!r}: not in the allow-list "
+                f"{sorted(_ALLOWED_FLAGS)}. Destructive flags are not annotations."
+            )
 
         conn = self._imap()
         conn.select(_imap_quote(folder))

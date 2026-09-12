@@ -176,7 +176,7 @@ def test_acting_on_a_contradiction_executes_internally_and_gates_the_email(clien
     conflicts = detect_contradictions(web.state.brain)
     assert conflicts, "fixtures produced no contradiction to act on"
 
-    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+    client.post("/act", data={"conflict_id": conflicts[0].id}, follow_redirects=True)
     results = web.state.last_results
     assert results, "no actions were attempted"
 
@@ -193,7 +193,7 @@ def test_the_approvals_page_lists_what_is_waiting(client):
 
     client.get("/")
     conflicts = detect_contradictions(web.state.brain)
-    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+    client.post("/act", data={"conflict_id": conflicts[0].id}, follow_redirects=True)
     body = client.get("/approvals").text
     assert "gated" in body and "Approve" in body
 
@@ -204,7 +204,7 @@ def test_an_executed_action_can_be_undone_from_the_console(client):
 
     client.get("/")
     conflicts = detect_contradictions(web.state.brain)
-    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+    client.post("/act", data={"conflict_id": conflicts[0].id}, follow_redirects=True)
 
     live = web.state.agent.executor.ledger.live()
     assert live, "nothing to undo"
@@ -219,7 +219,7 @@ def test_approving_in_the_console_executes_the_held_action(client):
 
     client.get("/")
     conflicts = detect_contradictions(web.state.brain)
-    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+    client.post("/act", data={"conflict_id": conflicts[0].id}, follow_redirects=True)
 
     assert web.state.gate.pending, "nothing was held for a human"
     key = next(iter(web.state.gate.pending))
@@ -239,7 +239,7 @@ def test_the_audit_page_reports_refusals_and_admits_its_limits(client):
 
     client.get("/")
     conflicts = detect_contradictions(web.state.brain)
-    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+    client.post("/act", data={"conflict_id": conflicts[0].id}, follow_redirects=True)
 
     body = client.get("/audit").text
     assert "Refusals" in body

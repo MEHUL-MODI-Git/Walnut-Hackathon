@@ -67,6 +67,15 @@ class RefusalReason(StrEnum):
     GATE_TIMEOUT = "gate_timeout"
     """A human was asked and did not answer. Timeout is a refusal, never a guess."""
 
+    ADAPTER_FAILURE = "adapter_failure"
+    """The adapter raised while performing the write.
+
+    Recorded as a refusal rather than allowed to propagate, because an exception
+    escaping the executor leaves the attempt invisible: no receipt, no ledger row,
+    nothing for a human to find. **The external side effect may still have happened** —
+    an API can fail after it has already written — so this is reported as uncertain,
+    not as "nothing occurred"."""
+
 
 @dataclass(frozen=True, slots=True)
 class Refusal:
@@ -235,9 +244,25 @@ class QueueGate:
         return "gate-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:10]
 
     def request(self, action: Action, context: str) -> GateDecision:
+        """Consume an approval, or queue the request.
+
+        **An approval is single-use.** Fixing the earlier counter-keyed bug by storing
+        the answer permanently traded one defect for a worse one: the same action then
+        re-executed forever on a single click, so the one write that reaches a customer
+        could send an unbounded number of times with no pending row and nothing in the
+        console to show it. A human approved one action, once; that is exactly what the
+        approval authorises.
+
+        A denial is *not* consumed — it stands until someone deliberately clears it, so
+        a denied action cannot be quietly retried into success by re-submission. But it
+        can still be approved later: `resolve()` overwrites it.
+        """
         key = self.key_for(action)
-        if key in self._answers:
-            return self._answers[key]
+        answer = self._answers.get(key)
+        if answer is not None:
+            if answer.approved:
+                del self._answers[key]  # spent
+            return answer
         self.pending[key] = (action, context)
         return GateDecision(
             approved=False,
@@ -255,3 +280,44 @@ class QueueGate:
 
 def tier_requires_human(tier: ActionTier) -> bool:
     return tier >= ActionTier.GATED
+
+
+# The complete list of operations that ingested content may justify — deliberately
+# kept in ONE place so "what can a poisoned document cause?" has a single auditable
+# answer rather than being spread across six adapters.
+#
+# This replaces an earlier rule that exempted everything at tier TRIVIAL. That was
+# wrong in a way that mattered: `email.flag` is TRIVIAL and applied its payload
+# verbatim as an IMAP flag, so a document could justify marking a real customer's
+# message `\Deleted`; `email.move_folder` is TRIVIAL and could move it out of the
+# inbox. Tier measures consequence-to-the-business; quarantine-safety is a different
+# question — is this operation purely annotative, reversible, and incapable of
+# destroying or hiding anything — and it deserved its own answer.
+#
+# Every entry here must be: additive only, trivially reversible, and visible to a
+# human afterwards. Nothing that deletes, hides, sends, or changes a status qualifies.
+QUARANTINE_SAFE: dict[str, frozenset[str]] = {
+    "notion": frozenset({"append_block"}),
+    "linear": frozenset({"add_label"}),
+    "github": frozenset({"add_label"}),
+    "slack": frozenset({"add_reaction"}),
+    "email": frozenset(),  # flag and move_folder are NOT safe; see above.
+}
+
+
+# Operations that CANNOT be undone, however much the ledger wishes otherwise. A sent
+# email cannot be recalled. Declared centrally so the console can refuse to offer an
+# Undo button that would only raise, and so the reliability brief cannot claim
+# universal reversibility while a counterexample sits in the same package.
+IRREVERSIBLE: dict[str, frozenset[str]] = {
+    "email": frozenset({"send_email"}),
+}
+
+
+def is_reversible(app: str, operation: str) -> bool:
+    return operation not in IRREVERSIBLE.get(app, frozenset())
+
+
+def is_quarantine_safe(app: str, operation: str) -> bool:
+    """May ingested content justify this operation? Default is no."""
+    return operation in QUARANTINE_SAFE.get(app, frozenset())

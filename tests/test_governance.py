@@ -478,3 +478,139 @@ def test_approval_does_not_carry_over_to_a_materially_different_action(rig):
                     justified_by=(fact.node_id,))
     result = executor.execute(sneaky)
     assert isinstance(result, Refusal), "a different payload rode in on the approval"
+
+
+# -- regressions from the adversarial review --------------------------------
+
+
+def test_one_approval_authorises_exactly_one_execution(rig):
+    """P0. Storing the answer permanently turned one click into standing authority:
+    the single write that reaches a customer re-executed forever, with no pending row
+    and nothing in the console to show it."""
+    brain, adapter, _ = rig
+    gate = QueueGate()
+    executor = ActionExecutor({"linear": adapter}, brain, gate, verify_freshness=False)
+    fact = brain.remember(ev("email", "e1", "customer asked for an update"))
+    action = act("email_customer", (fact.node_id,))
+
+    executor.execute(action)
+    gate.resolve(next(iter(gate.pending)), approved=True)
+
+    assert not isinstance(executor.execute(action), Refusal)   # the approved one
+    second = executor.execute(action)                          # must NOT ride along
+    assert isinstance(second, Refusal), "one approval authorised a second send"
+    assert len(adapter.performed) == 1
+
+
+def test_a_denial_is_not_spent_by_resubmission(rig):
+    brain, adapter, _ = rig
+    gate = QueueGate()
+    executor = ActionExecutor({"linear": adapter}, brain, gate, verify_freshness=False)
+    fact = brain.remember(ev("email", "e1", "customer asked"))
+    action = act("email_customer", (fact.node_id,))
+
+    executor.execute(action)
+    gate.resolve(next(iter(gate.pending)), approved=False)
+    for _ in range(3):
+        assert isinstance(executor.execute(action), Refusal)
+    assert adapter.performed == []
+
+
+def test_tainted_content_cannot_justify_a_destructive_trivial_operation():
+    """P1. The tier-TRIVIAL exemption let a poisoned document justify setting an
+    arbitrary IMAP flag — including one that deletes the message."""
+    from walnut.actions.governance import is_quarantine_safe
+
+    assert not is_quarantine_safe("email", "flag")
+    assert not is_quarantine_safe("email", "move_folder")
+    # Quarantine remains possible where it is genuinely additive and reversible.
+    assert is_quarantine_safe("notion", "append_block")
+    assert is_quarantine_safe("slack", "add_reaction")
+
+
+def test_an_adapter_that_raises_becomes_a_typed_refusal_in_the_ledger(rig):
+    """P1. An exception escaping the choke point left the attempt invisible: no
+    receipt, no refusal, nothing for a human to find."""
+    brain, adapter, executor = rig
+    fact = brain.remember(ev("github", "pr-288", "PR open"))
+
+    def boom(action):
+        raise KeyError("channel")
+
+    adapter.act = boom
+    result = executor.execute(act("create_issue", (fact.node_id,)))
+    assert isinstance(result, Refusal)
+    assert result.reason is RefusalReason.ADAPTER_FAILURE
+    assert "may or may not have reached" in result.explanation
+    assert executor.ledger.summary()["refused"] == 1
+
+
+def test_a_backlog_issue_is_not_read_as_complete():
+    """P1. 'state: Backlog ... before calling it fully resolved' classified COMPLETE
+    on the word 'resolved', and then ranked as the top contradiction in the UI."""
+    assert classify(
+        "MED-433 Clinical validation — state: Backlog. Once MED-412 lands, "
+        "before calling it fully resolved."
+    ) is ClaimStatus.IN_FLIGHT
+
+
+def test_reported_speech_is_not_read_as_a_claim():
+    assert classify(
+        "the 'shipped' miscommunication needs fixing before #288 is verified"
+    ) is not ClaimStatus.COMPLETE
+
+
+def test_conflicts_are_addressable_individually():
+    """P1. Six conflicts commonly share one subject; addressing by subject executed
+    a different one than the human was shown."""
+    from walnut.contradiction import detect_contradictions
+    from walnut.adapters.fixture import load_all_fixtures
+
+    b = Brain()
+    for a in load_all_fixtures().values():
+        for e in a.fetch(limit=200):
+            b.remember(e)
+    conflicts = detect_contradictions(b)
+    ids = [c.id for c in conflicts]
+    assert len(ids) == len(set(ids)), "conflict ids collide"
+    assert len({c.subject for c in conflicts}) < len(conflicts), (
+        "fixture no longer exercises the shared-subject case this guards"
+    )
+
+
+def test_every_inferential_merge_is_banded_below_certain():
+    """P1. MatchBand.LIKELY was unreachable, so a guessed merge and a verified one
+    both read 'certain' — the exact over-merge hazard the module claims to prevent."""
+    report = resolve_identities([
+        Identity("slack", "sarah", "Sarah Kim", "sarah.kim@meridian.dev"),
+        Identity("notion", "S. Kim", "S. Kim"),
+    ])
+    person = report.find("Sarah Kim")
+    assert person is not None and "notion" in person.apps
+    assert person.band is MatchBand.LIKELY, (
+        f"an inferential merge was reported as {person.band.value}"
+    )
+
+
+def test_no_identity_is_silently_dropped():
+    """P2. Partially-matching identities vanished entirely, while ones matching
+    nothing survived — weak evidence was represented less than none."""
+    from walnut.adapters.fixture import load_identities
+
+    supplied = {i.key() for i in load_identities() if i.handle.strip()}
+    report = resolve_identities(load_identities())
+    present = {i.key() for p in report.resolved for i in p.identities}
+    assert supplied - present == set(), f"dropped: {sorted(supplied - present)}"
+
+
+def test_a_single_digit_fabrication_is_refused():
+    """P2. The grounding wall exempted every one-character numeral. In a clinical
+    corpus that is precisely the dangerous case."""
+    from walnut.render import Answer, Claim, ground
+
+    b = Brain()
+    fact = b.remember(ev("slack", "e1", "The incident affected the dosing engine."))
+    out = ground(Answer(question="q", claims=[
+        Claim("3 patients were harmed.", (fact.node_id,))]), b)
+    assert out.facts == [], "a fabricated single-digit count rendered as a cited fact"
+    assert "3" in out.refusals[0][1]

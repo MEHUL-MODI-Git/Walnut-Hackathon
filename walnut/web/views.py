@@ -260,7 +260,7 @@ does not render at all.</p>
               {_evidence_block(c.left.fact.text, c.left.fact.cite())}
               {_evidence_block(c.right.fact.text, c.right.fact.cite())}
               <form method="post" action="/act">
-                <input type="hidden" name="subject" value="{esc(c.subject)}">
+                <input type="hidden" name="conflict_id" value="{esc(c.id)}">
                 <button class="btn">Propose actions across all five apps</button></form>
             </div>""")
 
@@ -283,6 +283,18 @@ does not render at all.</p>
                             f'{esc(r.action.app)}.{esc(r.action.operation)} '
                             f'<span class="cite">→ {esc(r.action_id)}</span></div>')
     return "".join(body)
+
+
+def _undo_cell(receipt: Any) -> str:
+    """Undo button, or an honest explanation of why there isn't one."""
+    from ..actions.governance import is_reversible
+
+    if receipt.is_undone:
+        return ""
+    if not is_reversible(receipt.action.app, receipt.action.operation):
+        return '<span class="cite">cannot be undone</span>'
+    return (f'<form method=post action=/undo/{esc(receipt.action_id)}>'
+            f'<button class="btn ghost">Undo</button></form>')
 
 
 def page_approvals(pending: list[tuple[str, Any, str]], history: list[Any]) -> str:
@@ -310,8 +322,7 @@ request is a refusal, never an approval — the gate fails closed.</p>"""]
             f"<tr><td class='mono'>{esc(r.action_id)}</td>"
             f"<td>{esc(r.action.app)}.{esc(r.action.operation)}</td>"
             f"<td>{'undone' if r.is_undone else 'live'}</td>"
-            f"<td>{'' if r.is_undone else f'''<form method=post action=/undo/{esc(r.action_id)}>'''
-                  f'''<button class=\"btn ghost\">Undo</button></form>'''}</td></tr>"
+            f"<td>{_undo_cell(r)}</td></tr>"
             for r in history
         )
         body.append(f"""<h2>Action ledger</h2><div class="tablewrap"><table>

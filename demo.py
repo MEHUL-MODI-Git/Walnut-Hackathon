@@ -95,6 +95,7 @@ def act2(agent: WalnutAgent, gate: QueueGate) -> None:
         return (
             ("notion" in apps and bool(apps & {"github", "linear"})) * 4
             + (c.left.is_primary and c.right.is_primary) * 2
+            + ("github" in apps)  # an unmerged PR is the least deniable evidence
             + c.subject.startswith("feature:")
         )
 

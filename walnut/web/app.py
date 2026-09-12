@@ -74,7 +74,8 @@ class State:
 
     def ingest(self) -> int:
         agent = self.agent or self.rebuild_agent()
-        count = agent.ingest(limit=200)
+        # Honour the repo / database the operator actually chose.
+        count = agent.ingest(scopes=self.connections.default_scopes(), limit=200)
         try:
             agent.resolve_people(load_identities())
         except Exception:  # noqa: BLE001 - identity data is fixture-only, optional
@@ -182,11 +183,19 @@ def investigate_post(question: str = Form("")) -> RedirectResponse:
 
 
 @app.post("/act")
-def act(subject: str = Form("")) -> RedirectResponse:
-    """Propose and execute the standard five-app response to one contradiction."""
+def act(conflict_id: str = Form("")) -> RedirectResponse:
+    """Propose and execute the standard five-app response to ONE specific contradiction.
+
+    Addressed by conflict id rather than by subject. Several conflicts commonly share a
+    subject, so subject-addressing silently substituted a different one — writing an
+    evidence chain into four external systems that did not match the one the human read.
+    If the id no longer resolves (the brain was re-ingested), do nothing rather than
+    guess at a replacement.
+    """
     agent = state.ensure()
-    conflicts = [c for c in detect_contradictions(state.brain) if c.subject == subject]
+    conflicts = [c for c in detect_contradictions(state.brain) if c.id == conflict_id]
     if not conflicts:
+        state.last_results = []
         return back("/investigate")
 
     conflict = conflicts[0]
@@ -235,7 +244,9 @@ def undo(action_id: str) -> RedirectResponse:
     agent = state.ensure()
     try:
         agent.executor.undo(action_id)
-    except KeyError:
+    except Exception:  # noqa: BLE001 - an adapter refusing to undo is an answer
+        # A sent email cannot be recalled, and the email adapter says so by raising.
+        # Turning that into a 500 would present an honest refusal as a crash.
         pass
     return back("/approvals")
 

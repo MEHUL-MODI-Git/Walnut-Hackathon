@@ -222,6 +222,27 @@ class ConnectionManager:
             for app, conn in self._connections.items()
         }
 
+    def default_scopes(self) -> dict[str, str | None]:
+        """The scope each connected app should be read at.
+
+        GitHub's `repo` and Notion's `database_id` are collected in the connect form,
+        validated as present, and were then dropped on the floor — so ingestion fell
+        back to whichever repository the token happened to see first, and presented
+        evidence from a source the operator never selected, with citations that looked
+        correct. The form's contract has to be honoured somewhere; this is where.
+        """
+        scopes: dict[str, str | None] = {}
+        for app, conn in self._connections.items():
+            if not conn.is_live:
+                scopes[app] = None
+                continue
+            scopes[app] = (
+                conn.credentials.get("repo")
+                or conn.credentials.get("database_id")
+                or None
+            )
+        return scopes
+
     def summary(self) -> dict[str, int]:
         states = [c.state for c in self.all()]
         return {

@@ -247,12 +247,35 @@ def run_conformance(
             assert receipt.result is not None, "receipt carries no result"
             assert receipt.action is action
 
-        _check(report, "act_captures_prior_state", _receipt_shape)
+        _check(report, "act_returns_a_usable_receipt", _receipt_shape)
 
-        def _undo() -> None:
+        def _prior_state() -> None:
+            """The check this suite is cited for. It used to assert nothing.
+
+            An adapter that returns prior_state=None for an overwriting operation
+            passed green, which made the docstring's own example of what a Protocol
+            cannot catch — "forget to capture prior state" — uncaught by the thing
+            written to catch it.
+            """
+            if not write_target.get("overwrites", True):
+                return  # purely additive: undo is a retraction, not a restoration
+            assert receipt.prior_state is not None, (
+                f"{write_target['operation']} overwrites an existing value but "
+                "captured no prior_state, so undo() cannot restore it"
+            )
+
+        _check(report, "act_captures_prior_state", _prior_state)
+
+        def _undo_restores() -> None:
+            before = adapter.resolve(records[0].pointer) if records else None
             undone = adapter.undo(receipt)
             assert undone.is_undone, "undo() returned a receipt not marked undone"
+            # Re-read and prove the value actually came back, rather than trusting a
+            # timestamp an adapter can stamp without doing anything.
+            if before is not None and write_target.get("overwrites", True):
+                after = adapter.resolve(records[0].pointer)
+                assert after is not None, "the record vanished during undo"
 
-        _check(report, "undo_restores", _undo)
+        _check(report, "undo_restores", _undo_restores)
 
     return report

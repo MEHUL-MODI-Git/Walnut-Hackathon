@@ -180,6 +180,15 @@ Recorded because "show how you know it works" should include how you know it *di
 | Swapping the seed corpus | The feature extractor held a **hard-coded vocabulary** of one corpus's product names. Changing domain made it silently find nothing — no error, no output, a detector that still looked like it was working |
 | Swapping the seed corpus | Subject keys normalise "dosing engine v2" to `dosingv2`, but the authority check searched for that joined string in text reading "dosing **engine** v2" — so almost every record was misjudged as a passing mention |
 | Console tests | A pasted credential could be echoed back into a rendered page |
+| **Adversarial review** | **One approval became standing authority.** Fixing the counter-keyed gate by storing the answer permanently traded one defect for a worse one: the single write that reaches a customer re-executed forever on one click, with no pending row and nothing in the console to show it. Approvals are now single-use |
+| Adversarial review | The taint rule exempted tier TRIVIAL — which includes `email.flag`, applying its payload verbatim as an IMAP flag. A poisoned document could mark a real customer's message `\Deleted`. Replaced with an explicit quarantine allow-list |
+| Adversarial review | An adapter exception escaped the "one audited choke point" — no receipt, no refusal, nothing in the ledger, and the external write may already have happened. Now a typed `adapter_failure` refusal that says so |
+| Adversarial review | The classifier read free prose and ignored the structured `state:` field, so a **Backlog** issue whose description said "before calling it resolved" was ranked the top contradiction — a confident wrong answer with a citation attached |
+| Adversarial review | `/act` addressed conflicts by subject, but six conflicts share one subject: the human read conflict B and the system wrote conflict A's evidence into four external systems |
+| Adversarial review | `MatchBand.LIKELY` was unreachable — a guessed identity merge and a verified one both read `certain` |
+| Adversarial review | The grounding wall exempted every single-digit numeral. "3 patients were harmed" rendered as a cited fact; "12 outages" was correctly refused, so the check looked like it worked |
+| Adversarial review | `act_captures_prior_state` never inspected `prior_state`, and `undo_restores` never checked restoration |
+| Adversarial review | GitHub's repo and Notion's database were collected in the connect form, validated, then dropped — ingestion silently read whichever repo the token saw first |
 
 ## Layout
 

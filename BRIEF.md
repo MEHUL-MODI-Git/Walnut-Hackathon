@@ -36,12 +36,13 @@ written. The run is reproducible, and its misses are inspectable rather than mys
 |---|---|---|
 | PASS | Ingests from five independent apps | 88 records from 5 apps |
 | PASS | Resolves one human across multiple app identities | 10 people resolved across more than one app |
-| PASS | Escalates uncertain identity matches instead of guessing | 10 held for human review |
+| PASS | Escalates uncertain identity matches instead of guessing | 6 held for human review |
 | PASS | Surfaces cross-app contradictions | 15 found; top subject feature:dosingv2 |
 | PASS | An action with no justifying evidence cannot be constructed | ValueError raised at construction, not at execution |
 | PASS | Executes internal actions across multiple apps | 4 executed |
 | PASS | Holds the customer-facing action for a human | email.send_email queued for approval; gate fails closed on no answer |
-| PASS | Every executed action is reversible | linear-1 undone via its own adapter |
+| PASS | Every reversible action executed on this run was reversed | linear-1 undone via its own adapter |
+| PASS | Every irreversible operation is gated behind a human | email.send_email cannot be undone, so it cannot execute unapproved |
 | PASS | Refuses actions driven by instructions found in ingested content | reason=tainted_instruction; taint path reported |
 | PASS | Still permits quarantining the same content | labelling the poison is permitted; acting on it is not |
 
@@ -51,13 +52,13 @@ written. The run is reproducible, and its misses are inspectable rather than mys
   5 apps (email, github, linear, notion, slack)
 - **Graph:** 88 nodes, 0 edges
 - **Contradictions surfaced:** 15
-- **Identity resolution:** {'people': 11, 'identities': 40, 'cross_app': 10, 'needs_human_review': 10}
+- **Identity resolution:** {'people': 16, 'identities': 45, 'cross_app': 10, 'needs_human_review': 6}
 - **Action ledger:** {'executed': 5, 'undone': 1, 'refused': 2, 'refusal_reasons': ['gate_timeout', 'tainted_instruction']}
 
 ## Test suite
 
 ```
-1 failed, 179 passed in 4.29s
+1 failed, 206 passed in 4.11s
 ```
 
 Tests run with **no network and no credentials**. Every adapter — including the fixture

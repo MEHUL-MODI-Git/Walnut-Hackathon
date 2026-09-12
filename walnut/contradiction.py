@@ -24,6 +24,7 @@ misses are inspectable rather than mysterious.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from enum import StrEnum
@@ -48,7 +49,8 @@ _COMPLETE = re.compile(
     re.I,
 )
 _IN_FLIGHT = re.compile(
-    r"\b(in progress|in review|wip|open|todo|to do|started|ongoing|"
+    r"\b(in progress|in review|wip|open|todo|to do|backlog|triage|planned|"
+    r"unstarted|not started|started|ongoing|"
     r"under review|pending|awaiting|draft)\b",
     re.I,
 )
@@ -117,8 +119,14 @@ def extract_subjects(text: str) -> set[str]:
     return subjects
 
 
-def classify(text: str) -> ClaimStatus:
-    """Extract what the text asserts. Negation is checked before completion."""
+# Most records carry an explicit status field. Reading it beats guessing from prose.
+_STATUS_FIELD = re.compile(r"\b(?:state|status)\s*:\s*([A-Za-z][A-Za-z ]{0,18})", re.I)
+# Text inside quotes is reported speech — someone describing a claim, often to dispute
+# it ("the 'shipped' miscommunication"). Classifying on it inverts the meaning.
+_QUOTED = re.compile(r"[\"'‘’“”]([^\"'‘’“”]{1,80})[\"'‘’“”]")
+
+
+def _classify_prose(text: str) -> ClaimStatus:
     if _NEGATED_COMPLETE.search(text):
         return ClaimStatus.BLOCKED
     if _BLOCKED.search(text):
@@ -130,6 +138,28 @@ def classify(text: str) -> ClaimStatus:
     if _COMPLETE.search(text):
         return ClaimStatus.COMPLETE
     return ClaimStatus.UNKNOWN
+
+
+def classify(text: str) -> ClaimStatus:
+    """What does this record assert about the state of its subject?
+
+    **The structured status field wins.** Reading prose first was a real defect, not a
+    theoretical one: a Linear issue in `state: Backlog` whose description ended "...
+    before calling it fully resolved" was classified COMPLETE on the word "resolved",
+    and then ranked as the top contradiction in the UI — a confident wrong answer with
+    a citation attached, which is precisely the failure this product exists to prevent.
+
+    Prose is the fallback for records that have no status field at all (chat messages,
+    email). Quoted spans are stripped from it first, because reported speech usually
+    means someone is describing a claim rather than making it — often to dispute it.
+    """
+    field = _STATUS_FIELD.search(text)
+    if field is not None:
+        status = _classify_prose(field.group(1).strip())
+        if status is not ClaimStatus.UNKNOWN:
+            return status
+
+    return _classify_prose(_QUOTED.sub(" ", text))
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +209,19 @@ class Conflict:
 
     def evidence_ids(self) -> tuple[str, ...]:
         return (self.left.fact.node_id, self.right.fact.node_id)
+
+    @property
+    def id(self) -> str:
+        """Stable identity for this exact conflict, not just its subject.
+
+        Six distinct conflicts can share one subject. Addressing them by subject meant
+        the console executed whichever happened to be first while showing the human a
+        different one — so the evidence chain on screen and the evidence chain written
+        into four external systems were not the same chain. That is the provenance
+        break the whole product turns on, arriving through the UI.
+        """
+        material = f"{self.subject}|{self.left.fact.node_id}|{self.right.fact.node_id}"
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()[:12]
 
 
 # Which status pairs are genuinely incompatible. UNKNOWN conflicts with nothing —
