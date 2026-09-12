@@ -22,6 +22,7 @@ from walnut.actions.governance import QueueGate, Refusal
 from walnut.adapters.fixture import load_all_fixtures, load_identities
 from walnut.agent import WalnutAgent
 from walnut.contradiction import detect_contradictions
+from walnut.observability import Tracer
 from walnut.playbook import build_plan
 
 RULE = "─" * 78
@@ -35,11 +36,16 @@ def build() -> tuple[WalnutAgent, QueueGate]:
     adapters = load_all_fixtures()
     brain = Brain()
     gate = QueueGate()
+    # Traces the whole run into Lemma when LEMMA_API_KEY is present, and silently
+    # no-ops when it is not. The demo must never require an observability vendor to
+    # be reachable in order to run.
+    tracer = Tracer()
     # Freshness checking is off for the demo: the fixture adapter is the source of
     # truth for itself, so every hash trivially matches. It is ON in the live path,
     # where it is the check that catches a source moving under a stale citation.
-    executor = ActionExecutor(adapters, brain, gate, verify_freshness=False)
-    return WalnutAgent(adapters, brain, executor), gate
+    executor = ActionExecutor(adapters, brain, gate, verify_freshness=False,
+                              tracer=tracer)
+    return WalnutAgent(adapters, brain, executor, tracer=tracer), gate
 
 
 def act1(agent: WalnutAgent) -> None:
@@ -136,6 +142,7 @@ def act3(agent: WalnutAgent) -> None:
 
     from walnut.contract import Action
 
+    act3_results = []
     for op, app, target, payload in [
         ("set_state", "linear", {"id": "any"}, {"state": "Done"}),
         ("send_email", "email", {"id": "bulk"}, {"to": "customers@"}),
@@ -145,6 +152,7 @@ def act3(agent: WalnutAgent) -> None:
                    justified_by=(fact.node_id,),
                    rationale="requested by the Support Macros document")
         )
+        act3_results.append(result)
         print(result.render() if isinstance(result, Refusal)
               else f"  EXECUTED {app}.{op} — THIS IS A BUG, the taint rule did not fire")
         print()
@@ -164,9 +172,11 @@ def act3(agent: WalnutAgent) -> None:
     from walnut.adapters.fixture import load_all_fixtures
     from walnut.baseline import compare
 
+    act3_results.append(quarantine)
     print(f"\n{RULE}")
-    print(compare(agent.brain, load_all_fixtures(),
-                  [*agent.executor.ledger.refusals, *agent.executor.ledger.history()]).render())
+    # Scoped to THIS act's three attempts only. Folding in act 2's successes would
+    # compare two different tasks and flatter whichever side had more to do.
+    print(compare(agent.brain, load_all_fixtures(), act3_results).render())
 
 
 def main() -> int:

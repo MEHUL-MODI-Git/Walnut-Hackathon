@@ -69,7 +69,24 @@ _NEGATED_COMPLETE = re.compile(
 # Subject keys the demo turns on: issue keys, PR references, and feature names.
 _ISSUE_KEY = re.compile(r"\b([A-Z]{2,5}-\d{1,6})\b")
 _PR_REF = re.compile(r"(?:\bPR\s*#?|#)(\d{1,6})\b", re.I)
-_FEATURE = re.compile(r"\b(export|import|billing|auth|sso|search|sync)\s*(v\d)?\b", re.I)
+# A versioned product name: one or two words immediately before a version token.
+# Deliberately NOT a hard-coded vocabulary — an earlier version listed the feature
+# words of one seed corpus ("export|billing|auth|…") and silently found nothing at all
+# when the data changed domain, which is the worst kind of failure: no error, no
+# output, and a detector that looks like it is working.
+#
+# The first word before the version carries the identity, so "dosing engine v2" and
+# "dosing v2" resolve to the same subject while "export v2" stays distinct from both.
+_FEATURE = re.compile(
+    r"\b((?:[a-z][a-z-]{2,18}\s+){1,2})(v\d+(?:\.\d+)?)\b", re.I
+)
+
+# Words that are never a product name, however often they precede a version number.
+_NOT_A_FEATURE = frozenset({
+    "the", "this", "that", "our", "their", "its", "a", "an", "and", "for", "with",
+    "from", "into", "onto", "release", "version", "ship", "shipped", "using", "via",
+    "to", "in", "on", "of", "is", "was", "are", "were", "we", "they", "it",
+})
 
 
 def extract_subjects(text: str) -> set[str]:
@@ -83,14 +100,20 @@ def extract_subjects(text: str) -> set[str]:
     subjects.update(m.group(1).upper() for m in _ISSUE_KEY.finditer(text))
     subjects.update(f"PR#{m.group(1)}" for m in _PR_REF.finditer(text))
     for m in _FEATURE.finditer(text):
-        version = (m.group(2) or "").lower()
-        # An UNVERSIONED feature word is a shared word, not a shared referent. Two
-        # messages both saying "export" are not talking about the same thing in any
-        # sense a contradiction can be built on, and treating them as though they were
-        # produced 303 conflicts from an 88-record corpus on the first real run —
-        # which is not detection, it is noise wearing detection's clothes.
-        if version:
-            subjects.add(f"feature:{m.group(1).lower()}{version}")
+        # Take the FIRST non-stopword of the one or two words before the version.
+        # A leftmost-greedy single capture grabs the preposition in "for dosing v2"
+        # and then discards the whole match as a stopword — finding nothing.
+        words = [w for w in m.group(1).lower().split() if w not in _NOT_A_FEATURE]
+        if not words:
+            continue
+        name, version = words[0], m.group(2).lower()
+        # The version is required. An UNVERSIONED feature word is a shared word, not a
+        # shared referent: two messages both saying "dosing" are not talking about the
+        # same thing in any sense a contradiction can be built on, and treating them as
+        # though they were produced 303 conflicts from an 88-record corpus on the first
+        # real run — noise wearing detection's clothes.
+        if name not in _NOT_A_FEATURE:
+            subjects.add(f"feature:{name}{version}")
     return subjects
 
 
@@ -179,10 +202,20 @@ def _is_primary(fact: Fact, subject: str) -> bool:
         return ident.endswith(f"-{subject[3:]}")
     if subject.startswith("feature:"):
         # No record "is" a feature the way an issue is itself. The workable proxy is
-        # title position: a page called "Export v2 — Spec" is about export v2; a Slack
-        # message that mentions it in passing forty words in is not.
-        head = fact.text[:70].lower().replace(" ", "")
-        return subject[len("feature:") :] in head
+        # title position: a page called "Dosing Engine v2 — Spec" is about dosing v2; a
+        # Slack message mentioning it forty words in is not.
+        #
+        # Match the name and the version SEPARATELY rather than the concatenated
+        # subject key. The key normalises "dosing engine v2" to "dosingv2" by dropping
+        # the middle word, so searching for "dosingv2" in the text finds nothing and
+        # every such record is misjudged as a passing mention — which silently reduced
+        # the detector to only those records that happened to omit the middle word.
+        head = fact.text[:80].lower()
+        m = re.fullmatch(r"feature:(.+?)(v\d+(?:\.\d+)?)", subject)
+        if m is None:
+            return False
+        name, version = m.group(1), m.group(2)
+        return name in head and version in head
     return ident == subject
 
 

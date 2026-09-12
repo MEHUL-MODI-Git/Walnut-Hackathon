@@ -50,13 +50,14 @@ python demo.py --act 3     # just the refusal
 
 Runs entirely offline against fixture data. No API tokens required.
 
-**Act 1 — the brain.** 88 records from five apps become one graph. Sarah Kim resolves
+**Act 1 — the brain.** Records from five apps become one graph of cited facts. Sarah Kim resolves
 across five identities (`@sarah`, `sarah-k`, `Sarah Kim`, `S. Kim`,
-`sarah.kim@meridian.dev`). Ten uncertain matches are held for a human rather than
+`sarah.kim@meridianhealth.dev`). Ten uncertain matches are held for a human rather than
 guessed, because over-merging two real people is a data-protection incident.
 
-**Act 2 — the action.** The brain finds that the Notion spec claiming
-`Status: Shipped` is contradicted by GitHub PR #288, still open with zero approvals.
+**Act 2 — the action.** The brain finds that the Notion spec claiming the dosing
+engine v2 is `Status: Shipped` is contradicted by GitHub PR #288 — the paediatric
+dose-rounding fix — still open with zero approvals.
 It files a Linear issue carrying the evidence chain, comments on the PR, replies in
 Slack, corrects the Notion status — and **stops** at the customer email.
 
@@ -71,7 +72,7 @@ HELD    email.send_email      → gate_timeout
 ```
 
 **Act 3 — the refusal.** A Notion page carrying injected instructions asks the agent to
-mark all issues resolved and email the customer list. Both are operations it can
+mark all issues resolved and email the contact list for every patient. Both are operations it can
 perform. It refuses both, and shows why:
 
 ```
@@ -86,6 +87,35 @@ REFUSED: email.send_email
 
 The same document *can* justify quarantining itself. You may label the poison; you may
 not act on it.
+
+## Connect your own accounts
+
+```bash
+make web        # http://localhost:8000
+```
+
+Every app works on seeded data before anything is connected — that is the default, not
+a degraded mode. Connecting swaps the live adapter in behind the same contract.
+
+A credential is validated by **using** it: Walnut calls `probe()` and reports what the
+token can actually see. A token that parses but reads nothing is an error, not a
+success. Credentials are held in memory for the process only — never written to disk,
+never logged, and never rendered into a page (asserted by test, because this gets
+demoed over screen share).
+
+Token paste rather than OAuth is deliberate: five OAuth flows means five app
+registrations and five ways to be stuck, and it makes the product undemonstrable to
+anyone who has not already done that setup. The credential spec is shaped so an OAuth
+callback could fill the same fields later.
+
+## The control condition
+
+Every claim here is comparative, so there is something to compare against:
+`walnut/baseline.py` is this same codebase with the governance layer removed — same
+adapters, same brain, same corpus. On the seeded data it executes far more actions,
+including ones taken verbatim from the page carrying injected instructions, and reports
+every one as a success. A test asserts the control is not secretly governed, because a
+flattering control is worse than none.
 
 ## Architecture
 
@@ -119,7 +149,7 @@ may be written. The run is reproducible.
 ## Reliability
 
 ```bash
-pytest -q          # 135 passed
+pytest -q          # 172 passed
 ```
 
 - **Every adapter passes one behavioural conformance suite** (`walnut/conformance.py`).
@@ -144,6 +174,12 @@ Recorded because "show how you know it works" should include how you know it *di
 | First live demo run | Contradiction detector reported **303** conflicts on an 88-record corpus: unversioned feature words matched as shared referents, and the cartesian product was emitted undeduplicated. Now 18, deduplicated per subject and app-pair |
 | Demo output review | Dedup kept the *newest* claim per pair rather than the most *authoritative*, so an all-hands agenda outranked the spec page. Primacy now beats recency |
 | Demo output review | `regression` matched "regression pass", reading a completed QA issue as broken |
+| Demo output review | `regression` matched "regression pass", reading a completed QA issue as broken |
+| Re-reading the code | **Approval could never let an action through.** The gate keyed requests by an incrementing counter, so the action re-submitted after a human approved it got a fresh key, found no answer, and was refused again. The console's approve button appeared to work and changed nothing |
+| Re-reading the code | Plan ids derived from Python's `hash()`, which is randomised per process, so the same contradiction got a different id every run |
+| Swapping the seed corpus | The feature extractor held a **hard-coded vocabulary** of one corpus's product names. Changing domain made it silently find nothing — no error, no output, a detector that still looked like it was working |
+| Swapping the seed corpus | Subject keys normalise "dosing engine v2" to `dosingv2`, but the authority check searched for that joined string in text reading "dosing **engine** v2" — so almost every record was misjudged as a passing mention |
+| Console tests | A pasted credential could be echoed back into a rendered page |
 
 ## Layout
 
@@ -161,7 +197,7 @@ walnut/
     governance.py    refusal types, taint detection, human gates
     executor.py      the one write choke point
   adapters/          slack · linear · github · notion · email · fixture
-fixtures/            the Meridian company as CSV
+fixtures/            Meridian Health, a clinical software vendor, as CSV
 demo.py              the three acts
 ```
 
