@@ -419,3 +419,62 @@ def test_refusals_are_rendered_as_prominently_as_facts():
     )
     rendered = ground(answer, brain).render()
     assert "FACTS" in rendered and "REFUSALS" in rendered
+
+
+# -- the approval round trip (regression: approval used to never work) ------
+
+
+def test_approving_a_gated_action_actually_lets_it_through(rig):
+    """The demo's central beat. This was broken: QueueGate keyed requests by an
+    incrementing counter, so the action re-submitted after approval got a fresh key,
+    found no answer, and was refused again."""
+    brain, adapter, _ = rig
+    gate = QueueGate()
+    executor = ActionExecutor({"linear": adapter}, brain, gate, verify_freshness=False)
+    fact = brain.remember(ev("email", "e1", "customer asked for an update"))
+    action = act("email_customer", (fact.node_id,), rationale="reply to the customer")
+
+    first = executor.execute(action)
+    assert isinstance(first, Refusal) and first.reason is RefusalReason.GATE_TIMEOUT
+    assert len(gate.pending) == 1
+
+    key = next(iter(gate.pending))
+    gate.resolve(key, approved=True, note="approved in console")
+
+    second = executor.execute(action)
+    assert not isinstance(second, Refusal), "approval did not let the action through"
+    assert len(adapter.performed) == 1
+
+
+def test_denying_a_gated_action_keeps_it_refused_on_resubmission(rig):
+    brain, adapter, _ = rig
+    gate = QueueGate()
+    executor = ActionExecutor({"linear": adapter}, brain, gate, verify_freshness=False)
+    fact = brain.remember(ev("email", "e1", "customer asked"))
+    action = act("email_customer", (fact.node_id,))
+
+    executor.execute(action)
+    gate.resolve(next(iter(gate.pending)), approved=False)
+    again = executor.execute(action)
+    assert isinstance(again, Refusal) and again.reason is RefusalReason.GATE_DENIED
+    assert adapter.performed == []
+
+
+def test_approval_does_not_carry_over_to_a_materially_different_action(rig):
+    """Approving one email must not authorise a different one."""
+    brain, adapter, _ = rig
+    gate = QueueGate()
+    executor = ActionExecutor({"linear": adapter}, brain, gate, verify_freshness=False)
+    fact = brain.remember(ev("email", "e1", "customer asked"))
+
+    approved = Action(app="linear", operation="email_customer", target={"id": "A"},
+                      payload={"body": "the approved text"}, justified_by=(fact.node_id,))
+    executor.execute(approved)
+    gate.resolve(next(iter(gate.pending)), approved=True)
+    assert not isinstance(executor.execute(approved), Refusal)
+
+    sneaky = Action(app="linear", operation="email_customer", target={"id": "A"},
+                    payload={"body": "something else entirely"},
+                    justified_by=(fact.node_id,))
+    result = executor.execute(sneaky)
+    assert isinstance(result, Refusal), "a different payload rode in on the approval"

@@ -17,6 +17,8 @@ imperatively it is phrased.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -196,17 +198,44 @@ class QueueGate:
     Nothing is approved by default. `pending` is what the console renders; a human
     calls `resolve()` to answer. An action whose gate request is never answered stays
     unexecuted forever, which is the correct failure mode.
+
+    **Requests are keyed by what the action IS, not by when it arrived.** An earlier
+    version used an incrementing counter, which meant the action re-submitted after
+    approval was handed a brand new key, found no answer against it, and was refused
+    again — approval could never let anything through. Identity-keying also gives the
+    property you actually want from a gate: approving an action approves *that* action,
+    and a materially different one (different target, different payload, different
+    justifying evidence) is a different request that must be approved on its own.
     """
 
     def __init__(self, decided_by: str = "steward") -> None:
         self.pending: dict[str, tuple[Action, str]] = {}
         self._answers: dict[str, GateDecision] = {}
         self._decided_by = decided_by
-        self._seq = 0
+
+    @staticmethod
+    def key_for(action: Action) -> str:
+        """A stable identity for one proposed action.
+
+        Deliberately includes the payload and the justifying evidence: approving
+        "email this customer, citing these two facts" must not silently authorise
+        "email this customer" with different content or different reasons behind it.
+        """
+        material = json.dumps(
+            {
+                "app": action.app,
+                "operation": action.operation,
+                "target": action.target,
+                "payload": action.payload,
+                "justified_by": sorted(action.justified_by),
+            },
+            sort_keys=True,
+            default=str,
+        )
+        return "gate-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:10]
 
     def request(self, action: Action, context: str) -> GateDecision:
-        key = f"gate-{self._seq}"
-        self._seq += 1
+        key = self.key_for(action)
         if key in self._answers:
             return self._answers[key]
         self.pending[key] = (action, context)

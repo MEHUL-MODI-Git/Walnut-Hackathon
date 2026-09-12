@@ -14,6 +14,7 @@ boundary with an error that looks like a connector bug.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from .brain import Brain, Fact
@@ -57,9 +58,15 @@ def build_plan(conflict: Conflict, brain: Brain) -> list[dict[str, Any]]:
 
     # 1. File it as tracked work. This one creates rather than updates, so it needs no
     #    existing target and is always safe to include.
+    # Stable across processes. Python's built-in hash() is randomised per interpreter
+    # by PYTHONHASHSEED, so using it here would give the same contradiction a different
+    # issue id on every run — which breaks idempotent seeding and makes two runs of the
+    # demo disagree for no reason a viewer could understand.
+    slug = hashlib.sha256(subject.encode("utf-8")).hexdigest()[:6].upper()
+
     steps.append({
         "app": "linear", "operation": "create_issue",
-        "target": {"id": f"WALNUT-{abs(hash(subject)) % 9000 + 1000}"},
+        "target": {"id": f"WALNUT-{slug}"},
         "payload": {
             "title": f"Contradiction on {subject} — status claim is unsupported",
             "state": "Todo",

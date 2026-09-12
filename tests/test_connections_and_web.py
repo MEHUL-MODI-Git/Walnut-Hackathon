@@ -210,3 +210,23 @@ def test_an_executed_action_can_be_undone_from_the_console(client):
     assert live, "nothing to undo"
     client.post(f"/undo/{live[0].action_id}", follow_redirects=True)
     assert web.state.agent.executor.ledger.receipts[live[0].action_id].is_undone
+
+
+def test_approving_in_the_console_executes_the_held_action(client):
+    """End-to-end round trip for the demo's central beat."""
+    from walnut.contradiction import detect_contradictions
+    from walnut.web import app as web
+
+    client.get("/")
+    conflicts = detect_contradictions(web.state.brain)
+    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+
+    assert web.state.gate.pending, "nothing was held for a human"
+    key = next(iter(web.state.gate.pending))
+    before = len(web.state.agent.executor.ledger.live())
+
+    client.post(f"/approvals/{key}/approve", follow_redirects=True)
+
+    after = web.state.agent.executor.ledger.live()
+    assert len(after) == before + 1, "approval did not result in the action executing"
+    assert any(r.action.app == "email" for r in after), "the approved email never sent"
