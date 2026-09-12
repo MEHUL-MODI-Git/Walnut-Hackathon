@@ -57,7 +57,7 @@ written. The run is reproducible, and its misses are inspectable rather than mys
 ## Test suite
 
 ```
-172 passed in 4.13s
+1 failed, 179 passed in 4.29s
 ```
 
 Tests run with **no network and no credentials**. Every adapter — including the fixture

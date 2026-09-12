@@ -149,7 +149,7 @@ may be written. The run is reproducible.
 ## Reliability
 
 ```bash
-pytest -q          # 172 passed
+pytest -q          # all green: no network, no credentials
 ```
 
 - **Every adapter passes one behavioural conformance suite** (`walnut/conformance.py`).
