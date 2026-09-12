@@ -240,6 +240,20 @@ def undo(action_id: str) -> RedirectResponse:
     return back("/approvals")
 
 
+@app.get("/audit", response_class=HTMLResponse)
+def audit() -> HTMLResponse:
+    agent = state.ensure()
+    return html(
+        views.page_audit(
+            state.brain.decision_summary(),
+            agent.executor.ledger.summary(),
+            agent.executor.ledger.refusals,
+            agent.identities.summary() if agent.identities else None,
+        ),
+        "Audit", "audit",
+    )
+
+
 # -- evidence ---------------------------------------------------------------
 
 

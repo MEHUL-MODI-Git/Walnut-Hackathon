@@ -15,7 +15,8 @@ from __future__ import annotations
 import html
 from typing import Any
 
-__all__ = ["layout", "page_connections", "page_dashboard", "page_investigate", "page_approvals"]
+__all__ = ["layout", "page_approvals", "page_audit", "page_connections", "page_dashboard",
+           "page_evidence", "page_investigate"]
 
 
 def esc(text: Any) -> str:
@@ -122,6 +123,7 @@ def layout(title: str, body: str, active: str = "") -> str:
     {nav("/investigate", "inv", "Investigate")}
     {nav("/approvals", "appr", "Approvals")}
     {nav("/evidence", "ev", "Evidence")}
+    {nav("/audit", "audit", "Audit")}
   </nav>
 </header>
 <main>{body}</main></body></html>"""
@@ -331,3 +333,62 @@ Nothing enters without provenance.</p>
   <input name="q" value="{esc(q)}" placeholder="filter…" style="flex:1;min-width:220px">
   <button class="btn">Search</button></div></form>
 <h2>{len(facts)} fact(s)</h2>{rows or '<div class="empty">Nothing ingested yet.</div>'}"""
+
+
+def page_audit(decisions: dict[str, Any], ledger: dict[str, Any],
+               refusals: list[Any], identities: dict[str, Any] | None) -> str:
+    """Everything the system decided and why — the answer to 'how do you know?'."""
+    outcomes = decisions.get("outcomes", {}) or {}
+    cats = decisions.get("categories", {}) or {}
+
+    cat_rows = "".join(
+        f"<tr><td class='mono'>{esc(k)}</td><td>{esc(v)}</td></tr>"
+        for k, v in sorted(cats.items(), key=lambda kv: -kv[1])[:14]
+    ) or "<tr><td colspan=2>nothing yet</td></tr>"
+
+    ref_blocks = "".join(
+        f"""<div class="refusal">
+          <div class="hd">{esc(r.action.app)}.{esc(r.action.operation)}
+            — {esc(r.reason.value)}</div>
+          <div style="color:var(--dim);font-size:12.5px">{esc(r.explanation)}</div>
+          {'<div class="taint">' + "".join(f"<div>{esc(p)}</div>" for p in r.taint_path)
+           + "</div>" if getattr(r, "taint_path", ()) else ""}
+        </div>"""
+        for r in refusals[:8]
+    ) or '<div class="empty">No refusals recorded on this run.</div>'
+
+    ident = ""
+    if identities:
+        ident = f"""<h2>Identity resolution</h2>
+        <div class="stat">
+          <div><b>{identities.get('people', 0)}</b><small>people</small></div>
+          <div><b>{identities.get('identities', 0)}</b><small>identities</small></div>
+          <div><b>{identities.get('cross_app', 0)}</b><small>cross-app</small></div>
+          <div><b>{identities.get('needs_human_review', 0)}</b><small>held for a human</small></div>
+        </div>
+        <div class="note"><b>Uncertain matches are never merged.</b> Fusing two
+        different real people is not a degraded answer, it is a data-protection
+        incident — so the uncertain band routes to a person rather than to a
+        threshold.</div>"""
+
+    return f"""<h1>Audit</h1>
+<p class="sub">Every decision this system made, and the evidence behind it. This page is
+the answer to "how do you know it works" — not a claim that it does, a record of what
+it actually did.</p>
+<div class="stat">
+  <div><b>{decisions.get('total_decisions', 0)}</b><small>decisions</small></div>
+  <div><b>{outcomes.get('executed', 0)}</b><small>executed</small></div>
+  <div><b>{outcomes.get('refused', 0)}</b><small>refused</small></div>
+  <div><b>{ledger.get('undone', 0)}</b><small>undone</small></div>
+</div>
+<h2>Refusals</h2>{ref_blocks}
+<h2>Decisions by category</h2>
+<div class="tablewrap"><table><tr><th>category</th><th>count</th></tr>{cat_rows}</table></div>
+{ident}
+<h2>What this does not prove</h2>
+<div class="note"><b>Stated because a reliability page that only lists successes is not
+one.</b> Taint detection is a tripwire, not a perimeter — it is safe to rely on only
+because ingested content can never justify a state-changing action regardless of what
+it says, so a missed pattern costs the explanation, not the outcome. Contradiction
+detection is lexical and will miss anything phrased without status vocabulary. Identity
+resolution is deterministic, not calibrated.</div>"""

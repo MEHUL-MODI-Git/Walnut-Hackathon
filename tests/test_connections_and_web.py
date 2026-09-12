@@ -133,7 +133,7 @@ def client() -> TestClient:
     return TestClient(web.app)
 
 
-@pytest.mark.parametrize("path", ["/", "/connections", "/investigate", "/approvals", "/evidence"])
+@pytest.mark.parametrize("path", ["/", "/connections", "/investigate", "/approvals", "/evidence", "/audit"])
 def test_every_page_renders(client, path):
     r = client.get(path)
     assert r.status_code == 200
@@ -230,3 +230,18 @@ def test_approving_in_the_console_executes_the_held_action(client):
     after = web.state.agent.executor.ledger.live()
     assert len(after) == before + 1, "approval did not result in the action executing"
     assert any(r.action.app == "email" for r in after), "the approved email never sent"
+
+
+def test_the_audit_page_reports_refusals_and_admits_its_limits(client):
+    """The reliability surface must state what it does NOT prove."""
+    from walnut.contradiction import detect_contradictions
+    from walnut.web import app as web
+
+    client.get("/")
+    conflicts = detect_contradictions(web.state.brain)
+    client.post("/act", data={"subject": conflicts[0].subject}, follow_redirects=True)
+
+    body = client.get("/audit").text
+    assert "Refusals" in body
+    assert "does not prove" in body, "the audit page makes no honest limitations claim"
+    assert "tripwire, not a perimeter" in body
