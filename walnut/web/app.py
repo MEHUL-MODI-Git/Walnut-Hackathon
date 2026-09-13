@@ -287,16 +287,43 @@ def execute_request() -> RedirectResponse:
     return back("/investigate")
 
 
+@app.get("/actions", response_class=HTMLResponse)
+def actions(tab: str = "catalogue") -> HTMLResponse:
+    """What the agent can do, per connected app — and what it has done."""
+    from .screens.actions import page_actions
+
+    agent = state.ensure()
+    return html(
+        page_actions(tab, state.all_adapters(), agent.executor.ledger,
+                     state.last_intent, state.last_results),
+        "Actions", "actions",
+    )
+
+
+@app.get("/investigate", response_class=HTMLResponse)
+def investigate_legacy() -> RedirectResponse:
+    """Investigate dissolved into Retrieval (asking) and Actions (doing)."""
+    return RedirectResponse("/actions?tab=activity", status_code=307)
+
+
 # -- approvals --------------------------------------------------------------
 
 
 @app.get("/approvals", response_class=HTMLResponse)
 def approvals() -> HTMLResponse:
+    from .screens.approvals import page_approvals
+
     agent = state.ensure()
     pending = [(k, a, ctx) for k, (a, ctx) in state.gate.pending.items()]
+    gated = sum(
+        1
+        for ad in state.all_adapters().values()
+        for tier in ad.capabilities().operations.values()
+        if int(tier) >= 2
+    )
     return html(
-        views.page_approvals(pending, agent.executor.ledger.history()),
-        "Approvals", "appr",
+        page_approvals(pending, gated, agent.executor.ledger.summary()["executed"]),
+        "Approvals", "approvals",
     )
 
 
@@ -337,13 +364,12 @@ def undo(action_id: str) -> RedirectResponse:
 @app.get("/audit", response_class=HTMLResponse)
 def audit() -> HTMLResponse:
     agent = state.ensure()
+    from .screens.audit import page_audit
+
+    ledger = agent.executor.ledger
     return html(
-        views.page_audit(
-            state.brain.decision_summary(),
-            agent.executor.ledger.summary(),
-            agent.executor.ledger.refusals,
-            agent.identities.summary() if agent.identities else None,
-        ),
+        page_audit(state.brain.decision_summary(), ledger.summary(),
+                   agent.identities, ledger.summary()["refusal_reasons"]),
         "Audit", "audit",
     )
 
@@ -395,11 +421,25 @@ def remove_source(name: str) -> RedirectResponse:
 # -- evidence ---------------------------------------------------------------
 
 
-@app.get("/evidence", response_class=HTMLResponse)
-def evidence(q: str = "") -> HTMLResponse:
+@app.get("/knowledge", response_class=HTMLResponse)
+def knowledge(q: str = "") -> HTMLResponse:
+    """The data layer, browsable — what the brain actually holds."""
+    from .screens.knowledge import page_knowledge
+
     state.ensure()
     facts = (
         state.brain.search(q, limit=60) if q.strip()
         else list(state.brain._facts.values())  # noqa: SLF001 - internal by design
     )
-    return html(views.page_evidence(facts, q), "Evidence", "ev")
+    stats = dict(state.brain.stats())
+    stats["edge_count"] = state.edges
+    return html(
+        page_knowledge(stats, facts, q, detect_contradictions(state.brain), state.held()),
+        "Knowledge base", "knowledge",
+    )
+
+
+@app.get("/evidence", response_class=HTMLResponse)
+def evidence_legacy(q: str = "") -> HTMLResponse:
+    """Kept so existing links and docs do not break."""
+    return knowledge(q)

@@ -131,13 +131,13 @@ _WHAT_THIS_DOES_NOT_PROVE = (
     "<h2>What this does not prove</h2>\n"
     '<p style="color:var(--muted);max-width:70ch">Stated because a reliability '
     "page that only lists successes is not one. Taint detection is "
-    "a tripwire, not a perimeter &mdash; it is safe to rely on only because "
+    "a tripwire, not a perimeter — it is safe to rely on only because "
     "ingested content can never justify a state-changing action regardless of "
     "what it says, so a missed pattern costs the explanation, not the outcome. "
     "Contradiction detection is lexical and will miss anything phrased without "
     "status vocabulary. Identity resolution is deterministic, not calibrated. "
     "And no live third-party API was necessarily called to produce this page "
-    "&mdash; seeded and demo data can look identical to it.</p>"
+    "— seeded and demo data can look identical to it.</p>"
 )
 
 
@@ -150,7 +150,7 @@ def page_audit(
     """Every decision this system made, and the evidence behind it."""
     header = """<div class="ph">
   <h1>Audit</h1>
-  <p>The answer to "how do you know it works" &mdash; not a claim that it
+  <p>The answer to "how do you know it works" — not a claim that it
   does, a record of what it actually did.</p>
 </div>"""
 

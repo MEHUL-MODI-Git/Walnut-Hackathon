@@ -83,7 +83,7 @@ def page_approvals(
     if not pending:
         body = empty("Nothing awaiting approval.") + (
             f'<p style="color:var(--muted);text-align:center;margin-top:var(--s2)">'
-            f"{gated_ops} gated operations exist across your connectors &middot; "
+            f"{gated_ops} gated operations exist across your connectors · "
             f"{decided_today} decided today</p>"
         )
         return header + body

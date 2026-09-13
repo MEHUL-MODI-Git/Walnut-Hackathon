@@ -50,7 +50,7 @@ def _conflict_row(conflict: Any) -> str:
     subject = esc(conflict.subject)
     left_app, right_app = conflict.apps
     header = (
-        f"<b>{subject}</b> &middot; {esc(left_app)} vs {esc(right_app)}"
+        f"<b>{subject}</b> · {esc(left_app)} vs {esc(right_app)}"
         f'<div style="color:var(--muted);margin-top:2px">{esc(conflict.explanation)}</div>'
     )
     sides = rail(conflict.left.fact.text, conflict.left.fact.cite()) + rail(
@@ -79,7 +79,7 @@ def page_knowledge(
 
     header = f"""<div class="ph">
   <h1>Knowledge base</h1>
-  <p>{fact_count} facts &middot; {source_count} sources &middot; {edge_count} edges.
+  <p>{fact_count} facts · {source_count} sources · {edge_count} edges.
   Every claim held here carries the evidence it was built from — nothing enters
   the brain without a resolvable pointer back to its source.</p>
 </div>
@@ -108,8 +108,8 @@ def page_knowledge(
         rows = []
         for f in shown:
             cite = (
-                f'{esc(f.cite())} &middot; <span class="pill quiet">{esc(f.app)}</span> '
-                f'&middot; <span class="mono">{esc(f.node_id)}</span>'
+                f'{esc(f.cite())} · <span class="pill quiet">{esc(f.app)}</span> '
+                f'· <span class="mono">{esc(f.node_id)}</span>'
             )
             rows.append(rail(f.text, cite))
         more = (
