@@ -115,6 +115,24 @@ def _field(row: dict[str, str], spec: Any) -> Any:
     return spec(row) if callable(spec) else row.get(spec, "")
 
 
+# app -> the column in people.csv holding that app's native handle.
+_HANDLE_COLUMN = {
+    "slack": "slack_handle",
+    "github": "github_login",
+    "linear": "linear_name",
+    "notion": "notion_name",
+    "email": "email",
+}
+
+
+def _load_people(fixture_dir: Path) -> dict[str, dict[str, str]]:
+    path = fixture_dir / "people.csv"
+    if not path.exists():
+        return {}
+    with path.open(newline="", encoding="utf-8") as fh:
+        return {r["person_id"]: r for r in csv.DictReader(fh) if r.get("person_id")}
+
+
 class FixtureAdapter:
     """One class, five apps, driven by `_SPEC`."""
 
@@ -126,7 +144,18 @@ class FixtureAdapter:
         self._dir = fixture_dir or FIXTURE_DIR
         self._rows: dict[str, dict[str, str]] = {}
         self._writes: list[ActionReceipt] = []
+        # Records store a person_id; every app knows that person by a different handle.
+        # Emitting the raw id meant 71 of 88 facts rendered an author of "p01", and
+        # identity-aware search could never match a person's name to their records.
+        self._people = _load_people(self._dir)
         self._load()
+
+    def _resolve_author(self, raw: str) -> str:
+        person = self._people.get(raw)
+        if person is None:
+            return raw
+        column = _HANDLE_COLUMN.get(self.name, "full_name")
+        return person.get(column) or person.get("full_name") or raw
 
     def _load(self) -> None:
         path = self._dir / self._spec["file"]
@@ -161,7 +190,7 @@ class FixtureAdapter:
                 content_hash=content_hash({f: row.get(f, "") for f in spec["hash"]}),
             ),
             text=_field(row, spec["text"]),
-            author=_field(row, spec["author"]) or None,
+            author=self._resolve_author(_field(row, spec["author"]) or "") or None,
             occurred_at=utcnow() - timedelta(days=days),
             labels=tuple(x for x in _field(row, spec["labels"]) if x),
             raw=dict(row),

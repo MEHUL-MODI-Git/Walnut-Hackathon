@@ -141,9 +141,17 @@ def test_every_page_renders(client, path):
 
 
 def test_the_console_runs_with_no_credentials_at_all(client):
-    """The whole product must be demonstrable before anything is connected."""
+    """The whole product must be demonstrable before anything is connected.
+
+    Asserted on behaviour rather than on the word "demo": that term was deliberately
+    renamed to "Sample data", because telling a buyer a connector is in "demo" mode
+    says the PRODUCT is a demo, when what is true is that the connector is
+    unconfigured and still fully functional.
+    """
     body = client.get("/").text
-    assert "demo" in body.lower()
+    assert "Walnut" in body
+    # Sources are connected and holding records without a single credential.
+    assert "records held" in body or "sources" in body.lower()
     assert client.get("/evidence").text.count("evidence") > 1
 
 

@@ -32,6 +32,8 @@ from ..playbook import build_plan
 from ..observability import Tracer
 from ..intent import parse_intent
 from ..plugins import SourceRegistry
+from ..retrieval import assemble, link_by_subject
+from . import design
 from . import views
 
 app = FastAPI(title="Walnut", docs_url=None, redoc_url=None)
@@ -52,6 +54,7 @@ class State:
     last_results: list[Any] = field(default_factory=list)
     last_intent: Any = None
     ingested: bool = False
+    edges: int = 0
 
     def rebuild_agent(self) -> WalnutAgent:
         """Rebuild against whatever is currently connected.
@@ -92,15 +95,59 @@ class State:
             agent.resolve_people(load_identities())
         except Exception:  # noqa: BLE001 - identity data is fixture-only, optional
             pass
+        # A brain with no edges is a database with extra steps. Linking on specific
+        # shared referents is what makes traversal and "what else mentions this"
+        # answerable at all.
+        try:
+            self.edges = link_by_subject(self.brain)
+        except Exception:  # noqa: BLE001 - linking is an enhancement, never a blocker
+            self.edges = 0
         self.ingested = True
         return count
+
+    def unsearchable(self) -> list[tuple[str, str]]:
+        """Sources that exist but could NOT be searched.
+
+        Without this the coverage table silently omits a broken connector, which makes
+        an honest search indistinguishable from one that skipped four systems.
+        """
+        out: list[tuple[str, str]] = []
+        for conn in self.connections.all():
+            if conn.state.value == "error":
+                out.append((conn.app, conn.error or "connection error"))
+        for src in self.registry.all():
+            if not src.usable:
+                out.append((src.name, src.summary() or "not conforming"))
+        return out
+
+    def held(self) -> dict[str, int]:
+        return {app: len(self.brain.by_app(app)) for app in self.brain.stats()["apps"]}
+
+    def shell(self) -> dict[str, Any]:
+        """Badges and the sidebar status strip."""
+        faults = len(self.unsearchable())
+        stats = self.brain.stats()
+        return {
+            "badges": {
+                "approvals": len(self.gate.pending) or None,
+                "connectors": faults or None,
+            },
+            "strip": (f"{stats.get('facts_indexed', 0)} facts · "
+                      f"{len(stats.get('apps', []))} sources<br>"
+                      f"{getattr(self, 'edges', 0)} links"
+                      + (f" · {len(self.gate.pending)} pending" if self.gate.pending else "")),
+        }
 
 
 state = State()
 
 
 def html(body: str, title: str, active: str) -> HTMLResponse:
-    return HTMLResponse(views.layout(title, body, active))
+    """Render through the new sidebar shell."""
+    ctx = state.shell()
+    return HTMLResponse(
+        design.layout(title, body, active, badges=ctx["badges"], strip=ctx["strip"])
+    )
 
 
 def back(path: str) -> RedirectResponse:
@@ -111,17 +158,16 @@ def back(path: str) -> RedirectResponse:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard() -> HTMLResponse:
+def retrieval(q: str = "", mode: str = "source") -> HTMLResponse:
+    """The hero: everything the company knows about one subject."""
+    from .screens.retrieval import page_retrieval
+
     agent = state.ensure()
-    conflicts = detect_contradictions(state.brain)
+    found = assemble(state.brain, q, identities=agent.identities) if q.strip() else None
     return html(
-        views.page_dashboard(
-            state.brain.stats(),
-            state.connections.summary(),
-            agent.executor.ledger.summary(),
-            len(conflicts),
-        ),
-        "Overview", "dash",
+        page_retrieval(q, found, unsearchable=state.unsearchable(),
+                       held=state.held(), mode=mode),
+        "Retrieval", "retrieval",
     )
 
 
