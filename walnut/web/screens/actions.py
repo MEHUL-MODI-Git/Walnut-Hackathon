@@ -298,8 +298,8 @@ def _history(adapters: dict[str, Adapter], ledger: ActionLedger) -> str:
         total, _n_apps, _counts = _tier_counts(adapters)
         out.append(empty(
             f"No actions taken yet. {total} operation{'s' if total != 1 else ''} "
-            "are available — nothing runs without evidence, and nothing "
-            "customer-facing runs without you."
+            "are available — nothing runs without evidence, and nothing that "
+            "leaves the organisation runs without you."
         ))
         return "".join(out)
 

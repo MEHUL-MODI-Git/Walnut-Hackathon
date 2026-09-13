@@ -22,6 +22,7 @@ breaking the product.
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 __all__ = ["DISPENSARY_SPEC", "register_internal_systems"]
@@ -77,18 +78,49 @@ DISPENSARY_SPEC: dict[str, Any] = {
 }
 
 
-def _reachable(url: str, timeout: float = 1.5) -> bool:
-    """Is the service up? Cheap, fails fast, never raises.
+READY_BUDGET_SECONDS = float(os.environ.get("DISPENSARY_READY_TIMEOUT", "1.2"))
+"""How long to wait for the service to answer before registering it anyway.
 
-    A short timeout on purpose: the console must not hang for several seconds on
-    startup because an optional internal system happens to be down.
-    """
+The console and the dispensary are two processes, and nothing orders them. Start the
+console first — or a quarter of a second too early — and the readiness probe that used
+to live here would have caught it; instead the very first call the conformance suite
+makes (`fetch()`) got `ECONNREFUSED`, the source was recorded as FAILING, and
+`SourceRegistry` never re-checks. For the rest of that console's life the dispensary is
+not in `all_adapters()`, so the planner cannot find an adapter declaring `place_hold`
+and the step that stops a queued dose is simply absent — no error, no warning, nothing
+in the log. A bounded wait costs at most `READY_BUDGET_SECONDS` on a stack that is
+genuinely down, and removes the race entirely on a stack that is merely slow.
+
+Deliberately small, and deliberately not a retry loop around conformance: if the
+service really is not there, the source must still register as a failure the console
+can show. Waiting longer would trade the honesty feature for a slower boot.
+"""
+
+
+def _reachable(url: str, timeout: float = 0.4) -> bool:
+    """Is the service up? Cheap, fails fast, never raises."""
     try:
         import httpx
 
         return httpx.get(f"{url.rstrip('/')}/healthz", timeout=timeout).status_code == 200
     except Exception:  # noqa: BLE001 - unreachable is an answer, not an error
         return False
+
+
+def _wait_until_reachable(url: str, budget: float = READY_BUDGET_SECONDS) -> bool:
+    """Poll `/healthz` until it answers or the budget runs out. Never raises.
+
+    Returns whether the service answered, purely so a caller can report it; callers
+    must register the source either way. This function exists to remove a start-up
+    race, not to decide whether a system gets to be in the coverage table.
+    """
+    deadline = time.monotonic() + max(0.0, budget)
+    while True:
+        if _reachable(url):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
 
 
 def register_internal_systems(registry: Any) -> list[str]:
@@ -106,7 +138,18 @@ def register_internal_systems(registry: Any) -> list[str]:
     # which is the exact confusion this product exists to remove. Registering it lets
     # conformance fail honestly, so it surfaces as "not searched, service unreachable"
     # with a link to the connector that fixes it.
-    source = registry.add_spec(dict(DISPENSARY_SPEC))
+    spec = dict(DISPENSARY_SPEC)
+
+    # Probe BEFORE registering, exactly as this module's docstring has always
+    # claimed. It said "It probes before registering" while `_reachable` sat unused —
+    # a documented behaviour with no code behind it, which is the one kind of claim
+    # this product is not allowed to make. The probe does not gate registration: an
+    # unreachable service is still registered, still fails conformance, and still
+    # appears as "not searched" with a reason. All it removes is the case where the
+    # service was coming up and we asked half a second too early.
+    _wait_until_reachable(str(spec.get("base_url") or DISPENSARY_URL))
+
+    source = registry.add_spec(spec)
     registered.append(source.name)
 
     return registered

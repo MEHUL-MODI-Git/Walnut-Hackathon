@@ -26,13 +26,13 @@ __all__ = ["page_approvals"]
 def _reach_tag(app: str) -> str:
     """Is this write about to leave the building?
 
-    Email is the one connected app that speaks to people outside the company.
-    Everything else lands in an internal system of record, however consequential
-    it is otherwise — the distinction an approver needs first is "can this
-    embarrass us to a customer," not "how big is the diff."
+    Email is the one connected app that speaks to people outside the organisation.
+    Everything else lands in an internal system of record, however consequential it
+    is otherwise — the distinction an approver needs first is "does this leave the
+    building," not "how big is the diff."
     """
     if app == "email":
-        return pill("reaches a customer", "stop")
+        return pill("leaves the organisation", "stop")
     return pill("internal", "quiet")
 
 
@@ -76,8 +76,9 @@ def page_approvals(
     like a broken page."""
     header = """<div class="ph">
   <h1>Approvals</h1>
-  <p>Anything customer-facing, bulk, or destructive stops here before it runs.
-  A gated action carries no default — it executes only once a human says yes.</p>
+  <p>Anything that leaves the organisation, changes many records at once, or cannot
+  be taken back stops here before it runs. A gated action carries no default — it
+  executes only once a human says yes, and an unanswered request is a refusal.</p>
 </div>"""
 
     if not pending:

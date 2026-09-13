@@ -135,6 +135,16 @@ def _prescription_or_404(prescription_id: str) -> dict[str, Any]:
     return rx
 
 
+def _holds_on(prescription_id: str) -> list[dict[str, Any]]:
+    """Every hold currently standing on one prescription, oldest first.
+
+    Holds are addressed individually but their EFFECT is shared: `dispense_status` is
+    a single field on the prescription, so two holds and one release cannot each own
+    it. Everything that reads or restores that field goes through this helper.
+    """
+    return [h for h in _STATE["holds"].values() if h["prescription_id"] == prescription_id]
+
+
 def _patient_or_404(mrn: str) -> dict[str, Any]:
     patient = _STATE["patients"].get(mrn)
     if patient is None:
@@ -246,13 +256,22 @@ def create_hold(body: HoldCreate) -> dict[str, Any]:
     hold_id = f"hold-{_STATE['_next_hold_id']:04d}"
     _STATE["_next_hold_id"] += 1
 
+    # The status to restore is the one from BEFORE the first hold, not the one this
+    # call happens to find. Place two holds on the same prescription and the naive
+    # version records `"held"` as the second hold's prior status, so releasing both
+    # leaves the dose held forever with no hold explaining why — a dose that can never
+    # be dispensed and nothing in the system saying so. Any existing hold on this
+    # prescription already knows the true pre-hold value, so reuse it.
+    existing = _holds_on(body.prescription_id)
+    prior = existing[0]["_prior_dispense_status"] if existing else rx["dispense_status"]
+
     hold = {
         "id": hold_id,
         "prescription_id": body.prescription_id,
         "reason": body.reason,
         "placed_by": body.placed_by,
         "placed_at": _now_iso(),
-        "_prior_dispense_status": rx["dispense_status"],
+        "_prior_dispense_status": prior,
     }
     _STATE["holds"][hold_id] = hold
     rx["dispense_status"] = "held"
@@ -269,10 +288,20 @@ def release_hold(hold_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"no hold {hold_id!r}")
 
     rx = _STATE["prescriptions"].get(hold["prescription_id"])
-    if rx is not None:
+    # A dose stays held while ANY hold is still on it. Restoring unconditionally meant
+    # releasing the first of two holds put the dose back in the queue while a second
+    # hold was still standing — the hold record said stopped, the queue said going
+    # out, and the queue is the one that hands the drug over.
+    remaining = _holds_on(hold["prescription_id"])
+    if rx is not None and not remaining:
         rx["dispense_status"] = hold["_prior_dispense_status"]
 
-    return {"released": True, "hold_id": hold_id, "prescription_id": hold["prescription_id"]}
+    return {
+        "released": True,
+        "hold_id": hold_id,
+        "prescription_id": hold["prescription_id"],
+        "holds_remaining": len(remaining),
+    }
 
 
 # ---------------------------------------------------------------------------

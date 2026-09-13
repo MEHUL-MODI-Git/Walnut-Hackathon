@@ -139,6 +139,23 @@ class State:
     def held(self) -> dict[str, int]:
         return {app: len(self.brain.by_app(app)) for app in self.brain.stats()["apps"]}
 
+    def last_seen(self) -> dict[str, Any]:
+        """When each source last handed us a record.
+
+        The connectors table had a Records column and a Last sync column, and every
+        row of both read "—" — including the rows for sources that had just supplied
+        a hundred and thirteen records between them. Two empty columns on the first
+        screen anyone opens say the product is unfinished, when what was missing was
+        the wiring to the numbers it already had.
+        """
+        out: dict[str, Any] = {}
+        for app in self.brain.stats()["apps"]:
+            stamps = [f.pointer.retrieved_at for f in self.brain.by_app(app)
+                      if f.pointer.retrieved_at]
+            if stamps:
+                out[app] = max(stamps)
+        return out
+
     def shell(self) -> dict[str, Any]:
         """Badges and the sidebar status strip."""
         faults = len(self.unsearchable())
@@ -218,7 +235,8 @@ def connectors() -> HTMLResponse:
     state.ensure()
     return html(
         page_connectors([c.redacted() for c in state.connections.all()], APP_SPECS,
-                        state.registry.all(), str(state.registry.plugin_dir)),
+                        state.registry.all(), str(state.registry.plugin_dir),
+                        ingested=state.held(), last_seen=state.last_seen()),
         "Connectors", "connectors",
     )
 

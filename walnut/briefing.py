@@ -160,7 +160,16 @@ def build_briefing(assembly: Any, conflicts: list[Any] | None = None) -> Briefin
     ]
 
     structured_apps = ("ehr", "dispensary", "labs")
-    record_facts = [f for f in assembly.facts if f.app in ("ehr", "dispensary")]
+    # The system of record first. Both the chart and the pharmacy carry a medications
+    # field, and the pharmacy's is terser — "co-amoxiclav" where the chart says
+    # "co-amoxiclav 625mg TDS (7-day course, recurrent sinusitis)". First match wins
+    # per field, so whichever source is read first decides what a clinician sees, and
+    # the less complete answer was winning on list order alone.
+    _AUTHORITY = ("ehr", "dispensary")
+    record_facts = sorted(
+        (f for f in assembly.facts if f.app in _AUTHORITY),
+        key=lambda f: _AUTHORITY.index(f.app),
+    )
     lab_facts = [f for f in assembly.facts if f.app == "labs"]
     narrative = [f for f in assembly.facts if f.app not in structured_apps]
 

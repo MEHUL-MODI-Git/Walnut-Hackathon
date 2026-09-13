@@ -222,7 +222,8 @@ def build_plan(
             "app": "email", "operation": "send_email",
             "target": target_for("email", "send_email", [em], context=context) or {},
             "payload": {"subject": says["email_subject"], "body": says["email_body"]},
-            "rationale": "Reply to the customer. Customer-facing, so it must be gated.",
+            "rationale": ("Put the question to the clinician who referred her. It "
+                          "leaves the organisation, so a human sends it, not the agent."),
         })
 
     # A step with an empty target cannot be performed. Dropping it is better than

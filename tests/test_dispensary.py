@@ -46,6 +46,8 @@ per-test) — copy it directly rather than retyping it.
 
 from __future__ import annotations
 
+import sys
+from dataclasses import replace
 from typing import Any, Callable
 
 import pytest
@@ -410,6 +412,320 @@ class TestRESTAdapterConformance:
         # once the thing it removes is already gone.
         with pytest.raises(RESTAPIError):
             adapter.undo(undone)
+
+
+# ---------------------------------------------------------------------------
+# checking a source twice must not change the answer
+# ---------------------------------------------------------------------------
+#
+# This is the regression suite for a bug whose whole damage was silence.
+#
+# `SourceRegistry.usable_adapters()` includes a custom source only if it PASSED
+# `run_conformance`, and the registry runs that suite exactly once, at registration,
+# and never again. So a single bad conformance run removes the dispensary from
+# `all_adapters()` for the life of the process — and `playbook._queued_prescription`
+# only emits the step that stops a queued dose if some adapter declares `place_hold`.
+# No adapter, no step. No error either: the plan just comes back one action shorter
+# and the demo's climax is absent with nothing anywhere saying why.
+#
+# Two independent things had to hold for that never to happen again, and they are
+# tested separately below:
+#
+#   1. The suite must not dent the source it is checking, so run N+1 measures the
+#      source rather than run N (`TestConformanceIsRepeatable`).
+#   2. A refused connection must not be recorded as a behavioural failure of the
+#      adapter (`TestUnreachableIsNotNonConforming`) — that was the actual cause: a
+#      6 passed / 1 failed / 6 skipped report whose single failure was
+#      `fetch_returns_evidence: ConnectError`, not a contract violation at all.
+
+
+def _service_snapshot(client: TestClient) -> dict[str, Any]:
+    """Everything a conformance run could plausibly disturb, in one comparable blob."""
+    return {
+        "prescriptions": client.get("/api/prescriptions").json()["data"],
+        "queue": client.get("/api/dispense-queue").json()["data"],
+        "health": client.get("/healthz").json(),
+    }
+
+
+class TestConformanceIsRepeatable:
+    """Run it three times in a row, against one service, with no reset in between."""
+
+    def test_three_consecutive_read_only_runs_report_exactly_the_same_thing(self) -> None:
+        reports = [run_conformance(_dispensary_adapter()) for _ in range(3)]
+
+        shapes = {
+            (tuple(r.passed), tuple(r.failed), tuple(r.skipped)) for r in reports
+        }
+        assert len(shapes) == 1, (
+            "conformance gave different answers on consecutive runs against the same "
+            "service: " + " || ".join(r.render() for r in reports)
+        )
+        for r in reports:
+            assert r.ok, r.render()
+            assert not r.unreachable, r.render()
+            assert len(r.passed) >= 10, r.render()
+
+    def test_three_consecutive_runs_with_a_write_target_report_the_same_thing(self) -> None:
+        write_target = {
+            "operation": "annotate",
+            "target": {"id": "rx-0002"},
+            "payload": {"note": "repeatability check", "author": "walnut-conformance"},
+            "overwrites": False,
+        }
+        reports = [
+            run_conformance(_dispensary_adapter(), write_target=write_target)
+            for _ in range(3)
+        ]
+
+        shapes = {
+            (tuple(r.passed), tuple(r.failed), tuple(r.skipped)) for r in reports
+        }
+        assert len(shapes) == 1, " || ".join(r.render() for r in reports)
+        for r in reports:
+            assert r.ok, r.render()
+            assert not r.skipped, r.render()
+
+    def test_a_conformance_run_leaves_the_service_exactly_as_it_found_it(
+        self, client: TestClient
+    ) -> None:
+        """The write half writes. It must also hand the source back unchanged — a
+        note left on a prescription, or worse a hold left on one, silently changes
+        what the NEXT run and the next plan see."""
+        before = _service_snapshot(client)
+
+        run_conformance(
+            _dispensary_adapter(),
+            write_target={
+                "operation": "annotate",
+                "target": {"id": "rx-0002"},
+                "payload": {"note": "leaves no trace", "author": "walnut-conformance"},
+                "overwrites": False,
+            },
+        )
+
+        assert _service_snapshot(client) == before
+
+    def test_the_write_is_reverted_even_when_a_later_check_fails(self) -> None:
+        """`undo_restores` asserts things AFTER calling undo(). If one of those
+        assertions fails the write is already reverted and must not be undone twice;
+        if undo() itself never ran, the suite must still clean up rather than leave
+        the source dented. Either way the annotation count comes back to zero."""
+
+        class _LiesAboutUndo(RESTAdapter):
+            """Undoes for real, then reports a receipt that does not say so."""
+
+            def undo(self, receipt: Any) -> Any:
+                return replace(super().undo(receipt), undone_at=None)
+
+        spec = {key: value for key, value in DISPENSARY_SPEC.items() if key != "kind"}
+        report = run_conformance(
+            _LiesAboutUndo(transport=_asgi_transport(), **spec),
+            write_target={
+                "operation": "annotate",
+                "target": {"id": "rx-0002"},
+                "payload": {"note": "cleanup check", "author": "walnut-conformance"},
+                "overwrites": False,
+            },
+        )
+
+        assert not report.ok, "a receipt not marked undone must still be a failure"
+        assert [name for name, _ in report.failed] == ["undo_restores"], report.render()
+        # The point of the test: the failure is about the RECEIPT, and the suite still
+        # left nothing behind — no second undo attempt, and no orphaned annotation.
+        assert "write_is_reverted" not in [name for name, _ in report.failed]
+        assert not _STATE_annotations(), "conformance left an annotation behind"
+
+    def test_repeated_registration_keeps_the_dispensary_usable(self) -> None:
+        """The end of the chain the bug ran down: registry -> usable_adapters ->
+        the adapter declaring place_hold -> the step that stops the dose."""
+        for attempt in range(3):
+            registry = SourceRegistry()
+            source = registry.add_adapter(_dispensary_adapter())
+            assert source.usable, f"attempt {attempt}: {source.report.render()}"
+            assert "dispensary" in registry.usable_adapters()
+            assert "place_hold" in registry.usable_adapters()["dispensary"].capabilities().operations
+
+    def test_conformance_still_passes_after_the_agent_has_placed_a_hold(
+        self, client: TestClient
+    ) -> None:
+        """The demo mutates this service for real — that is the whole point of it.
+        Conformance measures the adapter's behaviour, so a prescription being held
+        must not turn the source non-conforming and drop it out of the brain."""
+        client.post(
+            "/api/holds",
+            json={"prescription_id": "rx-0001", "reason": "allergy", "placed_by": "walnut"},
+        )
+        assert client.get("/api/prescriptions/rx-0001").json()["dispense_status"] == "held"
+
+        report = run_conformance(_dispensary_adapter())
+
+        assert report.ok, report.render()
+
+
+def _STATE_annotations() -> dict[str, Any]:
+    """The service's annotation table. There is no list endpoint for annotations —
+    the brief never asked for one — so the only way to prove nothing was left behind
+    is to look at the state the in-process app is actually serving from.
+
+    `sys.modules`, not `from services.dispensary import app`: the package attribute
+    `app` is the FastAPI instance, which shadows the module of the same name.
+    """
+    return sys.modules["services.dispensary.app"]._STATE["annotations"]
+
+
+# ---------------------------------------------------------------------------
+# unreachable is not the same fact as non-conforming
+# ---------------------------------------------------------------------------
+
+
+def _flaky_transport(fail_first: int) -> Callable[..., Any]:
+    """The real in-process transport, refusing the first `fail_first` calls.
+
+    Exactly what a service that is still binding its port does to the console that
+    started a quarter of a second too early.
+    """
+    import httpx
+
+    real = _asgi_transport()
+    seen = {"n": 0}
+
+    def _transport(method: str, url: str, **kwargs: Any) -> Any:
+        if seen["n"] < fail_first:
+            seen["n"] += 1
+            raise httpx.ConnectError("[Errno 61] Connection refused (simulated)")
+        return real(method, url, **kwargs)
+
+    return _transport
+
+
+class TestUnreachableIsNotNonConforming:
+    @pytest.fixture(autouse=True)
+    def _no_waiting(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from walnut import conformance as conformance_module
+
+        monkeypatch.setattr(conformance_module, "TRANSPORT_BACKOFF", 0.0)
+
+    def test_one_refused_connection_does_not_condemn_a_working_source(self) -> None:
+        """The bug, in one assertion. A single ECONNREFUSED on the opening fetch()
+        used to be written up as `fetch_returns_evidence: FAIL`, which froze the
+        dispensary out of `usable_adapters()` permanently — and the registry never
+        re-checks, so the console spent the rest of its life without the connector
+        that stops a dose, with nothing in the report suggesting the service was
+        fine all along."""
+        adapter = _dispensary_adapter()
+        adapter._transport = _flaky_transport(fail_first=1)  # type: ignore[attr-defined]
+
+        report = run_conformance(adapter)
+
+        assert report.ok, report.render()
+        assert not report.unreachable
+
+    def test_a_source_that_is_genuinely_down_still_fails_and_stays_unusable(self) -> None:
+        """The retry must not become a way to make a red go green. A service that
+        never answers is still a failure, and the source is still not wired in — a
+        system nobody can reach must never be reported as searched."""
+        adapter = _dispensary_adapter()
+        adapter._transport = _flaky_transport(fail_first=10_000)  # type: ignore[attr-defined]
+
+        report = run_conformance(adapter)
+
+        assert not report.ok
+        assert report.unreachable, "a refused connection was not identified as one"
+        why = dict(report.failed)["fetch_returns_evidence"]
+        assert "REACHABILITY" in why, why
+        assert "attempts" in why, why
+        # and the registry must still refuse to wire it in
+        registry = SourceRegistry()
+        source = registry.add_adapter(adapter)
+        assert not source.usable
+        assert registry.usable_adapters() == {}
+
+    def test_a_real_defect_is_not_retried_and_is_not_called_unreachable(self) -> None:
+        """Retrying a `KeyError` three times makes the report slower and no truer."""
+        adapter = _dispensary_adapter()
+        calls = {"n": 0}
+
+        def _broken(method: str, url: str, **kwargs: Any) -> Any:
+            calls["n"] += 1
+            raise KeyError("records")
+
+        adapter._transport = _broken  # type: ignore[attr-defined]
+
+        report = run_conformance(adapter)
+
+        assert not report.ok
+        assert not report.unreachable, "a code defect was misreported as a bad connection"
+        assert calls["n"] == 1, "a non-transport defect was retried"
+
+    def test_the_skipped_list_never_names_a_check_the_suite_does_not_have(self) -> None:
+        """`drift_detection` was reported as skipped by a suite that has never had a
+        check by that name, while three checks that really were skipped went
+        unnamed. A report that invents a check is the same vacuous evidence as one
+        that stops counting its passes."""
+        adapter = _dispensary_adapter()
+        adapter._transport = _flaky_transport(fail_first=10_000)  # type: ignore[attr-defined]
+
+        report = run_conformance(adapter)
+
+        named = {name for name, _ in report.skipped} | {n for n, _ in report.failed}
+        every_check = {name for name, _ in report.skipped} | set(report.passed) | {
+            n for n, _ in report.failed
+        }
+        assert "drift_detection" not in named
+        assert {"evidence_ids_unique", "fetch_honours_limit", "resolve_missing_returns_none"} <= every_check
+        for _name, why in report.skipped:
+            assert why, "a skip with no stated reason is a silent omission"
+
+
+# ---------------------------------------------------------------------------
+# two holds on one dose
+# ---------------------------------------------------------------------------
+
+
+class TestHoldsStack:
+    """`dispense_status` is one field and a hold is a record, so two holds and one
+    release cannot each own it. Both halves of that were wrong before, and both
+    failure modes end with a dose in the wrong state and nothing saying so."""
+
+    def test_a_second_hold_does_not_overwrite_the_real_prior_status(
+        self, client: TestClient
+    ) -> None:
+        first = client.post(
+            "/api/holds",
+            json={"prescription_id": "rx-0001", "reason": "allergy", "placed_by": "walnut"},
+        ).json()
+        second = client.post(
+            "/api/holds",
+            json={"prescription_id": "rx-0001", "reason": "duplicate", "placed_by": "nurse"},
+        ).json()
+
+        client.delete(f"/api/holds/{first['id']}")
+        client.delete(f"/api/holds/{second['id']}")
+
+        assert client.get("/api/prescriptions/rx-0001").json()["dispense_status"] == "queued", (
+            "releasing every hold left the dose held forever, with no hold record "
+            "left to explain why"
+        )
+
+    def test_releasing_one_of_two_holds_leaves_the_dose_held(
+        self, client: TestClient
+    ) -> None:
+        first = client.post(
+            "/api/holds",
+            json={"prescription_id": "rx-0001", "reason": "allergy", "placed_by": "walnut"},
+        ).json()
+        client.post(
+            "/api/holds",
+            json={"prescription_id": "rx-0001", "reason": "duplicate", "placed_by": "nurse"},
+        )
+
+        released = client.delete(f"/api/holds/{first['id']}").json()
+
+        assert released["holds_remaining"] == 1
+        assert client.get("/api/prescriptions/rx-0001").json()["dispense_status"] == "held", (
+            "the dose went back into the queue while a hold was still standing"
+        )
 
 
 # ---------------------------------------------------------------------------
