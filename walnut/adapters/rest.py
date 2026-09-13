@@ -112,6 +112,96 @@ def _dig(obj: Any, path: str) -> Any:
     return current
 
 
+def _validate_operations(
+    name: str, operations: dict[str, dict[str, Any]] | None
+) -> dict[str, dict[str, Any]]:
+    """Check a source's declared operations at construction, not at execution.
+
+    An internal system knows things about itself that no generic adapter can infer.
+    Nothing about `POST /api/holds` says whether it stops a dose from going out or
+    starts one — and that distinction is the whole tier. So the source declares it,
+    and the declaration is validated here, at connect time, where a mistake surfaces
+    as a refused connection rather than as a wrong write into a live system.
+
+    `FORBIDDEN` is accepted and is not a contradiction: declaring an operation the
+    agent must never perform is how a customer records that the endpoint exists and
+    is off limits, which is more useful than omitting it and leaving the reason to
+    folklore.
+    """
+    if not operations:
+        return {}
+
+    validated: dict[str, dict[str, Any]] = {}
+    for op, raw in operations.items():
+        if op == "annotate":
+            raise ValueError(
+                f"{name}: 'annotate' is built in and cannot be redeclared. Configure "
+                "annotate_path instead."
+            )
+        if not isinstance(raw, dict):
+            raise ValueError(f"{name}: operation {op!r} must be a mapping, got {type(raw).__name__}")
+
+        method = str(raw.get("method", "")).upper()
+        if method not in {"POST", "PUT", "PATCH", "DELETE"}:
+            raise ValueError(
+                f"{name}: operation {op!r} needs an explicit write method "
+                f"(POST/PUT/PATCH/DELETE), got {raw.get('method')!r}. A read dressed "
+                "as an action would sit in the ledger claiming to have changed something."
+            )
+        path = raw.get("path")
+        if not path or not isinstance(path, str):
+            raise ValueError(f"{name}: operation {op!r} needs a non-empty 'path'")
+        # A declared path is used literally — unlike annotate_path, nothing is appended
+        # to it. So a verb that modifies or removes ONE record must name that record in
+        # the path itself. Without this check, `{"method": "DELETE", "path":
+        # "/api/holds"}` with a target id issues DELETE against the COLLECTION: the
+        # config asks to release one hold and the call releases the lot.
+        if method in {"PUT", "PATCH", "DELETE"} and "{id}" not in path:
+            raise ValueError(
+                f"{name}: operation {op!r} is a {method}, which addresses one record, "
+                f"but its path {path!r} has no '{{id}}' placeholder. As written it "
+                "would be sent to the collection instead. POST may omit it, because "
+                "creating a record does not address one."
+            )
+
+        tier_name = str(raw.get("tier", "")).upper()
+        try:
+            tier = ActionTier[tier_name]
+        except KeyError:
+            raise ValueError(
+                f"{name}: operation {op!r} declares tier {raw.get('tier')!r}, which is "
+                f"not one of {[t.name for t in ActionTier]}. There is no default: an "
+                "un-tiered write would be executed at whatever tier the code happened "
+                "to assume."
+            ) from None
+
+        undo = raw.get("undo")
+        if undo is not None:
+            if not isinstance(undo, dict) or not undo.get("path"):
+                raise ValueError(f"{name}: operation {op!r} has an 'undo' with no path")
+            undo_method = str(undo.get("method", "DELETE")).upper()
+            # Held to the same allowlist as the operation itself. A GET here validated,
+            # and undo() then fetched a record and returned a receipt stamped
+            # `undone_at` — the ledger reporting a reversal that never happened, which
+            # is worse than an undo that fails loudly.
+            if undo_method not in {"POST", "PUT", "PATCH", "DELETE"}:
+                raise ValueError(
+                    f"{name}: the undo for operation {op!r} declares method "
+                    f"{undo.get('method')!r}. An undo that does not write cannot "
+                    "reverse anything, and the receipt would claim it had."
+                )
+            undo = {"method": undo_method, "path": undo["path"]}
+
+        validated[op] = {
+            "method": method,
+            "path": path,
+            "tier": tier,
+            "undo": undo,
+            "result_id_field": raw.get("result_id_field", "id"),
+        }
+    return validated
+
+
 class RESTAdapter:
     """Any internal HTTP/JSON API as evidence, described entirely by configuration.
 
@@ -142,6 +232,7 @@ class RESTAdapter:
         transport: Transport | None = None,
         annotate_path: str | None = None,
         delete_path: str | None = None,
+        operations: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         if not name:
             raise ValueError("RESTAdapter requires a non-empty name")
@@ -167,6 +258,7 @@ class RESTAdapter:
         self._uri_template = uri_template
         self._annotate_path = annotate_path
         self._delete_path = delete_path
+        self._operations = _validate_operations(name, operations)
         self._headers = dict(headers) if headers else {}
         self._transport: Transport = transport or self._build_default_transport(self._headers)
 
@@ -403,16 +495,65 @@ class RESTAdapter:
     # -- write --------------------------------------------------------------
 
     def capabilities(self) -> ActionCapabilities:
+        """What this source can do — `annotate`, plus whatever it declared.
+
+        The tier comes from the configuration, which means it comes from the person
+        who connected the system and knows what its endpoints do. That is the only
+        place the knowledge exists: nothing about `POST /api/holds` tells Walnut
+        whether it stops a dose or starts one.
+        """
+        operations: dict[str, ActionTier] = {}
+        if self._annotate_path:
+            operations["annotate"] = ActionTier.TRIVIAL
+        for op, config in self._operations.items():
+            operations[op] = config["tier"]
+        # A source with no write config at all still names `annotate`: that is the
+        # contract's one universal write, and `act()` explains the read-only case in
+        # words. But once a source HAS declared what it can do, an annotate it cannot
+        # perform is not named — a capability list is a promise, and the whole reason
+        # ActionCapabilities exists is that the promise can be relied on.
         return ActionCapabilities(
             app=self.name,
-            operations={"annotate": ActionTier.TRIVIAL},
+            operations=operations or {"annotate": ActionTier.TRIVIAL},
         )
 
+    def undo_tier(self, operation: str) -> ActionTier | None:
+        """What tier the REVERSAL of `operation` carries, if it can be worked out.
+
+        Undo is not automatically safer than the thing it undoes. Releasing a hold
+        puts a dose back into a patient's hand, and that is true whether it arrives
+        as `release_hold` or as "undo the place_hold". If the gate only guards the
+        named operation, the agent reaches the same outcome in two steps that both
+        look routine, and the tier bought nothing.
+
+        So the tier is DERIVED rather than declared again: if another declared
+        operation makes the identical call this undo makes, the undo *is* that
+        operation and inherits its tier. Nothing extra to configure, and nothing to
+        keep in sync — the equivalence is read off the configuration that already
+        describes both.
+
+        Returns None when no equivalent operation is declared, leaving the decision
+        to the caller rather than guessing at a tier.
+        """
+        config = self._operations.get(operation)
+        undo = config and config.get("undo")
+        if not undo:
+            return None
+        for other, other_config in self._operations.items():
+            if other == operation:
+                continue
+            if (other_config["method"], other_config["path"]) == (undo["method"], undo["path"]):
+                return other_config["tier"]
+        return None
+
     def act(self, action: Action) -> ActionReceipt:
+        if action.operation in self._operations:
+            return self._act_declared(action)
         if action.operation != "annotate":
             raise KeyError(
                 f"{self.name} adapter has no act handler for operation {action.operation!r}. "
-                "The only write this generic adapter supports is 'annotate'."
+                "This generic adapter supports 'annotate' plus whatever operations the "
+                f"source declared; this one declared {sorted(self._operations) or 'none'}."
             )
         if not self._annotate_path:
             raise RuntimeError(
@@ -443,7 +584,81 @@ class RESTAdapter:
             prior_state=None,
         )
 
+    def _act_declared(self, action: Action) -> ActionReceipt:
+        """Perform an operation this source declared for itself.
+
+        The target id is optional: `place_hold` posts a body and needs no id in the
+        path, while `release_hold` addresses an existing hold. Which it is follows
+        from whether the configured path contains a placeholder, so the config says
+        it once and there is no second place for the two to disagree.
+        """
+        config = self._operations[action.operation]
+        path = config["path"]
+        raw_id = action.target.get("id")
+
+        if "{id}" in path:
+            if raw_id is None:
+                raise ValueError(
+                    f"{self.name}: operation {action.operation!r} addresses a specific "
+                    "record, so action.target must include 'id'"
+                )
+            path = self._render_path(path, self._safe_id_segment(raw_id))
+
+        kwargs: dict[str, Any] = {}
+        if config["method"] != "DELETE" and action.payload:
+            kwargs["json"] = dict(action.payload)
+        response = self._request(config["method"], path, **kwargs)
+        response = response if isinstance(response, dict) else {}
+
+        result: dict[str, Any] = dict(response)
+        if raw_id is not None:
+            result.setdefault("record_id", str(raw_id))
+        created = response.get(config["result_id_field"])
+
+        return ActionReceipt(
+            action_id=f"{self.name}:{action.operation}:{raw_id or created or '-'}",
+            action=action,
+            result=result,
+            # This adapter cannot read the record's prior value without a second
+            # round trip it was never configured for, so it does not claim to have
+            # one. An invented prior_state is worse than none: undo would restore it.
+            prior_state=None,
+        )
+
+    def _undo_declared(self, receipt: ActionReceipt) -> ActionReceipt:
+        config = self._operations[receipt.action.operation]
+        undo = config["undo"]
+        if undo is None:
+            raise RuntimeError(
+                f"{self.name}: operation {receipt.action.operation!r} declared no undo, "
+                "so it cannot be reversed through Walnut. Reversing it by hand is the "
+                "only option — which is why an irreversible operation should be "
+                "declared GATED or FORBIDDEN rather than left to be discovered here."
+            )
+
+        path = undo["path"]
+        if "{id}" in path:
+            handle = receipt.result.get(config["result_id_field"]) or receipt.action.target.get("id")
+            if handle is None:
+                raise RuntimeError(
+                    f"{self.name} cannot undo {receipt.action_id!r}: the call returned "
+                    f"no {config['result_id_field']!r}, so there is nothing to address."
+                )
+            path = self._render_path(path, self._safe_id_segment(handle))
+        self._request(undo["method"], path)
+
+        return ActionReceipt(
+            action_id=receipt.action_id,
+            action=receipt.action,
+            result=receipt.result,
+            prior_state=receipt.prior_state,
+            executed_at=receipt.executed_at,
+            undone_at=utcnow(),
+        )
+
     def undo(self, receipt: ActionReceipt) -> ActionReceipt:
+        if receipt.action.operation in self._operations:
+            return self._undo_declared(receipt)
         if receipt.action.operation != "annotate":
             raise KeyError(
                 f"{self.name} adapter has no undo handler for operation "

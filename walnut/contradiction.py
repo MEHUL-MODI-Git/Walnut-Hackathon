@@ -89,9 +89,27 @@ _ABSENT = re.compile(
 )
 
 # Someone reporting the thing the record says is absent.
+#
+# Narrower than it first looks, because the first version was not: `flagging` matched
+# "thanks for flagging" in an email about a POSTAL ADDRESS, and bare `reported` matched
+# "no new symptoms reported today" — an assertion of absence read as its own opposite.
+# Both rendered as top-ranked contradictions on the demo's hero patient, burying the
+# real one under two confident inversions. A loose presence marker does not merely add
+# noise; it can invert the meaning of the sentence it matched.
 _PRESENT = re.compile(
-    r"\b(?:reports?|reported|reaction\s+to|allergic\s+to|came\s+out\s+in\s+a\s+rash"
-    r"|flagging|flagged\s+(?:an?|that)|confirmed\s+\w+\s+allergy)\b",
+    r"\b(?:reports?|reported|reporting|complain(?:s|ed|ing)?\s+of"
+    r"|came\s+out\s+in\s+a\s+rash|broke\s+out\s+in"
+    r"|reaction\s+to|allergic\s+to|confirmed\s+\w+\s+(?:allergy|reaction))\b",
+    re.I,
+)
+
+# A negator close in front of a presence marker turns the claim into its opposite:
+# "no new symptoms reported", "denies any reaction to penicillin". Checked by grammar
+# rather than by vocabulary, so it holds outside this corpus and outside this industry.
+_NEGATED_PRESENT = re.compile(
+    r"\b(?:no|not|nil|none|never|without|denies|denied|negative\s+for)\b"
+    r"(?:\s+\w+){0,3}\s+"
+    r"(?:reports?|reported|reporting|reaction|symptoms?|allergies|allergy)\b",
     re.I,
 )
 
@@ -167,7 +185,7 @@ def _classify_prose(text: str) -> ClaimStatus:
     # than the status ladder, and a record can carry both kinds of vocabulary.
     if _ABSENT.search(text):
         return ClaimStatus.ABSENT
-    if _PRESENT.search(text):
+    if _PRESENT.search(text) and not _NEGATED_PRESENT.search(text):
         return ClaimStatus.PRESENT
     if _NEGATED_COMPLETE.search(text):
         return ClaimStatus.BLOCKED
@@ -204,6 +222,14 @@ def classify(text: str) -> ClaimStatus:
     return _classify_prose(_QUOTED.sub(" ", text))
 
 
+def _clip(text: str, limit: int) -> str:
+    """Collapse whitespace and cut on a word boundary, marked as cut."""
+    flat = " ".join(text.split())
+    if len(flat) <= limit:
+        return flat
+    return flat[:limit].rsplit(" ", 1)[0].rstrip(" ,;:—-") + "…"
+
+
 @dataclass(frozen=True, slots=True)
 class Claim:
     """One fact's assertion about one subject."""
@@ -226,6 +252,47 @@ class Claim:
             f"{self.status.value:>10}{mark}  {self.fact.text[:90]}\n"
             f"            {self.fact.cite()}"
         )
+
+    def quote(self, limit: int = 180) -> str:
+        """The part of this record that actually makes the claim.
+
+        A contradiction rendered as two whole records asks the reader to find the
+        disagreement themselves — and a database row concatenated into text is hundreds
+        of characters of demographics with the one disputed word somewhere inside it.
+        Showing the clause is not a display nicety: the full record is what made the
+        alert unreadable in the first place, and an unreadable alert is a missed one.
+
+        For a structured record the clause is a named column, so it renders as
+        `Allergies: None recorded` — the field AND its value, which is the whole claim.
+        For prose it is the sentence carrying the match. Always the source's own words;
+        nothing here writes a description of the disagreement.
+        """
+        pattern = _ABSENT if self.status is ClaimStatus.ABSENT else _PRESENT
+
+        row = getattr(self.fact, "raw", None) or {}
+        whole = len(self.fact.text) or 1
+        for column, value in row.items():
+            text = str(value).strip()
+            if not text or not pattern.search(text):
+                continue
+            # A column that holds most of the record is the body, not a field. Labelling
+            # a chat message "Text: just spoke with..." names the schema rather than the
+            # claim; only a genuine field earns its label.
+            if len(text) / whole > 0.6:
+                break
+            label = column.replace("_", " ").strip().capitalize()
+            return _clip(f"{label}: {text}", limit)
+
+        match = pattern.search(self.fact.text)
+        if match is None:
+            return _clip(self.fact.text, limit)
+        # The sentence around the match — bounded, so one unpunctuated record cannot
+        # put the whole document back on screen.
+        window = self.fact.text[max(0, match.start() - 140) : match.end() + 140]
+        for part in re.split(r"(?<=[.!?])\s+|\n", window):
+            if pattern.search(part):
+                return _clip(part, limit)
+        return _clip(window, limit)
 
 
 @dataclass(frozen=True, slots=True)
@@ -374,6 +441,22 @@ def detect_contradictions(
                     )
                 )
 
-    # Strongest first: both sides authoritative outranks one side plus a mention.
-    conflicts.sort(key=lambda c: -(int(c.left.is_primary) + int(c.right.is_primary)))
+    # Strongest first, by two signals in order.
+    #
+    # 1. **Shape.** An absence conflict means one system is missing something another
+    #    one knows; a status conflict means two systems disagree about progress. The
+    #    first is the failure a company brain exists to catch, and the second is a
+    #    standup topic. Ranking them together buried a patient's unrecorded drug
+    #    reaction under three disagreements about a rota sync — which is not a display
+    #    bug, it is the product failing at the only job it claims.
+    # 2. **Authority.** Both sides authoritative outranks one side plus a mention.
+    #
+    # This orders findings; it does not resolve them. Neither side of any conflict is
+    # ever marked as the true one.
+    def strength(c: Conflict) -> tuple[int, int]:
+        shape = frozenset({c.left.status, c.right.status})
+        is_absence = shape == frozenset({ClaimStatus.ABSENT, ClaimStatus.PRESENT})
+        return (int(is_absence), int(c.left.is_primary) + int(c.right.is_primary))
+
+    conflicts.sort(key=strength, reverse=True)
     return conflicts

@@ -228,7 +228,9 @@ def connector_detail(app_name: str) -> HTMLResponse:
     """One connector: what it can see, what it can write, and why it is failing."""
     from .screens.connectors import page_connector_detail
 
-    agent = state.ensure()
+    # Called for the ingest it guarantees, not for the agent it returns — this page
+    # no longer reads the action ledger, so there is nothing here to name it for.
+    state.ensure()
     conn = next((c for c in state.connections.all() if c.app == app_name), None)
     source = next((s for s in state.registry.all() if s.name == app_name), None)
     adapter = state.all_adapters().get(app_name)
@@ -242,7 +244,14 @@ def connector_detail(app_name: str) -> HTMLResponse:
 
     facts = state.brain.by_app(app_name)
     stamps = sorted(f.occurred_at or f.pointer.retrieved_at for f in facts) if facts else []
-    recent = [r for r in agent.executor.ledger.history() if r.action.app == app_name][-10:]
+
+    # "Recently ingested" means ingested. This was handed `executor.ledger.history()`
+    # — the record of writes Walnut has PERFORMED — so every connector page reported a
+    # count of ingested records and then, an inch below it, that nothing had been
+    # ingested. Both cannot be true, and on a product whose entire claim is that it
+    # does not assert things it cannot show you, that particular contradiction is the
+    # worst one available. Newest first, sorted on the same key as `stamps`.
+    recent = sorted(facts, key=lambda f: f.occurred_at or f.pointer.retrieved_at)[-8:][::-1]
 
     return html(
         page_connector_detail(
@@ -339,7 +348,7 @@ def act(conflict_id: str = Form("")) -> RedirectResponse:
         return back("/investigate")
 
     conflict = conflicts[0]
-    plan = build_plan(conflict, state.brain)
+    plan = build_plan(conflict, state.brain, adapters=state.all_adapters())
     state.last_results = agent.execute_all(agent.propose_for_conflict(conflict, plan))
     return back("/investigate")
 

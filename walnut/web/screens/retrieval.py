@@ -42,14 +42,20 @@ def _line(label: str, value: str, fact: Any, flag: str = "") -> str:
 
 
 def _conflict_block(conflict: Any) -> str:
+    """Both sides quoted down to the clause that actually disagrees.
+
+    Rendering the whole record here put three hundred characters of demographics on
+    screen with the disputed word buried inside, which is how an alert that fires
+    correctly still gets missed.
+    """
     left, right = conflict.left.fact, conflict.right.fact
     return f"""<div class="alert">
       <div class="alert-h">Conflicting information · {esc(conflict.subject)}</div>
       <div class="alert-b">
         <div class="ln"><div class="ln-l">{esc(left.app)} says</div>
-          <div class="ln-v">{esc(left.text[:150])}{_cite(left)}</div></div>
+          <div class="ln-v">{esc(conflict.left.quote())}{_cite(left)}</div></div>
         <div class="ln"><div class="ln-l">{esc(right.app)} says</div>
-          <div class="ln-v">{esc(right.text[:150])}{_cite(right)}</div></div>
+          <div class="ln-v">{esc(conflict.right.quote())}{_cite(right)}</div></div>
       </div>
       <div class="alert-f">Not ranked automatically — recency and source authority are
         heuristics, not evidence. <a href="/knowledge#conflicts">Review →</a></div>

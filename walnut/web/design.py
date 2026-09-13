@@ -191,7 +191,12 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mo
 @media(max-width:620px){.ln{display:block}.ln-l{margin-bottom:2px}}
 
 /* the citation. Closed by default — a receipt you can reach, never noise you must read */
+/* Closed, the chip sits inline at the end of the line it belongs to. Open, it becomes
+   a block BELOW that line. An inline-block that grows is laid out on its baseline, so
+   an opened receipt lifted itself over the row above and covered the very statement it
+   was citing — the one arrangement a citation must never take. */
 details.cite{display:inline-block;margin-left:var(--s2);vertical-align:baseline}
+details.cite[open]{display:block;margin:var(--s2) 0 0}
 details.cite>summary{display:inline-block;list-style:none;cursor:pointer;
   font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.02em;
   color:var(--muted);background:var(--paper);border:1px solid var(--rule);
@@ -201,7 +206,8 @@ details.cite>summary:hover{color:var(--walnut);border-color:var(--walnut)}
 details.cite[open]>summary{color:var(--walnut);border-color:var(--walnut)}
 .cite-body{margin-top:var(--s2);padding:var(--s3);background:var(--paper);
   border-left:2px solid var(--walnut);border-radius:0 var(--r-sm) var(--r-sm) 0;
-  font-size:13px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+  font-size:13px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;
+  max-height:18em;overflow-y:auto}
 .cite-body .c{margin-top:var(--s2);font-family:"IBM Plex Mono",monospace;
   font-size:11px;color:var(--muted);white-space:normal}
 

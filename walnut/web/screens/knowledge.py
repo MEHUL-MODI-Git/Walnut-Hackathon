@@ -61,7 +61,14 @@ def _conflict_row(conflict: Any) -> str:
         f'<input type="hidden" name="conflict_id" value="{esc(conflict.id)}">'
         f'<button class="btn">Propose actions</button></form>'
     )
-    return f'<div style="margin-bottom:var(--s5)">{header}{sides}{form}</div>'
+    # The subject and the conflict's own id are on the element. Anything driving this
+    # page — a test, the demo recorder — can then address ONE conflict instead of
+    # guessing from document order, which is how a scripted run ended up proposing
+    # actions for a rota-sync disagreement while the screen showed a patient's
+    # unrecorded drug reaction.
+    return (f'<div class="conflict" data-subject="{subject}" '
+            f'data-conflict="{esc(conflict.id)}" '
+            f'style="margin-bottom:var(--s5)">{header}{sides}{form}</div>')
 
 
 def page_knowledge(

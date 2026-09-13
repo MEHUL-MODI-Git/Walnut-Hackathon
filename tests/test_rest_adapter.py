@@ -417,3 +417,429 @@ def test_act_rejects_unknown_operation(adapter: RESTAdapter) -> None:
     )
     with pytest.raises(KeyError):
         adapter.act(action)
+
+
+# -- declared operations -----------------------------------------------------
+
+
+class FakeOpsTransport:
+    """A stand-in for an internal service that has a real write surface.
+
+    `FakeWikiTransport` models the one write shape this adapter can assume for an
+    unknown API (annotate). This one models the shape a source has to *tell* Walnut
+    about: holds that can be placed and released, and tickets whose created handle is
+    not called `id`. Like the wiki fake it records every call, so a test can prove
+    both what went over the wire and — for a rejected id — that nothing did.
+
+    `POST /api/tickets` deliberately returns a decoy `id` alongside `ticket_ref`. An
+    adapter that reached for the default field name instead of the configured
+    `result_id_field` would address its undo at the decoy, and the assertions below
+    would see it.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+        self.holds: dict[str, dict[str, Any]] = {}
+        self.tickets: dict[str, dict[str, Any]] = {}
+        self._next_hold = 7
+        self._next_ticket = 9
+
+    def __call__(self, method: str, url: str, **kwargs: Any) -> Any:
+        self.calls.append((method, url, kwargs))
+        assert url.startswith(_BASE_URL), f"transport received a non-base url: {url!r}"
+        path = url[len(_BASE_URL) :]
+        parts = [p for p in path.split("/") if p]
+
+        if method == "POST" and path == "/api/holds":
+            hold_id = f"hold-{self._next_hold}"
+            self._next_hold += 1
+            self.holds[hold_id] = dict(kwargs.get("json") or {})
+            return {"id": hold_id, "status": "held"}
+
+        if method == "DELETE" and len(parts) == 3 and parts[:2] == ["api", "holds"]:
+            hold_id = unquote(parts[2])
+            if hold_id not in self.holds:
+                raise RESTNotFound(url)
+            del self.holds[hold_id]
+            return {}
+
+        if method == "POST" and path == "/api/tickets":
+            ticket_ref = f"T-{self._next_ticket}"
+            self._next_ticket += 1
+            self.tickets[ticket_ref] = dict(kwargs.get("json") or {})
+            return {"ticket_ref": ticket_ref, "id": "decoy-not-the-handle"}
+
+        if method == "DELETE" and len(parts) == 3 and parts[:2] == ["api", "tickets"]:
+            ticket_ref = unquote(parts[2])
+            if ticket_ref not in self.tickets:
+                raise RESTNotFound(url)
+            del self.tickets[ticket_ref]
+            return {}
+
+        raise AssertionError(f"FakeOpsTransport has no route for {method} {path}")
+
+
+_DECLARED_OPERATIONS: dict[str, dict[str, Any]] = {
+    "place_hold": {
+        "method": "POST",
+        "path": "/api/holds",
+        "tier": "INTERNAL",
+        "undo": {"method": "DELETE", "path": "/api/holds/{id}"},
+        "result_id_field": "id",
+    },
+    "release_hold": {
+        "method": "DELETE",
+        "path": "/api/holds/{id}",
+        "tier": "GATED",
+    },
+    "open_ticket": {
+        "method": "POST",
+        "path": "/api/tickets",
+        "tier": "INTERNAL",
+        "undo": {"method": "DELETE", "path": "/api/tickets/{id}"},
+        "result_id_field": "ticket_ref",
+    },
+}
+
+
+@pytest.fixture
+def ops_transport() -> FakeOpsTransport:
+    return FakeOpsTransport()
+
+
+@pytest.fixture
+def ops_adapter(ops_transport: FakeOpsTransport) -> RESTAdapter:
+    return _make_adapter(ops_transport, operations=_DECLARED_OPERATIONS)
+
+
+def _ops_action(adapter: RESTAdapter, operation: str, **kw: Any) -> Action:
+    return Action(
+        app=adapter.name,
+        operation=operation,
+        target=kw.get("target", {}),
+        payload=kw.get("payload", {}),
+        justified_by=("internal_wiki:art-1",),
+    )
+
+
+def test_declared_operations_appear_in_capabilities_beside_annotate(
+    ops_adapter: RESTAdapter,
+) -> None:
+    """Guards the case where a declared operation is executable but invisible.
+
+    The executor decides what needs approval from `capabilities()`. An operation
+    missing from that map, or present at a tier the config did not choose, is an
+    action taken under permission nobody granted it.
+    """
+    caps = ops_adapter.capabilities()
+    assert caps.operations == {
+        "annotate": ActionTier.TRIVIAL,
+        "place_hold": ActionTier.INTERNAL,
+        "release_hold": ActionTier.GATED,
+        "open_ticket": ActionTier.INTERNAL,
+    }
+    assert caps.tier_of("release_hold") is ActionTier.GATED
+
+
+def test_declared_tier_follows_the_config_and_is_not_inferred_from_the_method(
+    ops_transport: FakeOpsTransport,
+) -> None:
+    """Guards against the tier being derived from the HTTP verb.
+
+    `POST /api/holds` is INTERNAL at one customer and GATED at the next — the verb
+    carries none of that. The same operation declared differently must report
+    differently, or the declaration is decoration.
+    """
+    stricter = _make_adapter(
+        ops_transport,
+        operations={
+            "place_hold": {"method": "POST", "path": "/api/holds", "tier": "GATED"},
+        },
+    )
+    assert stricter.capabilities().operations["place_hold"] is ActionTier.GATED
+
+
+def test_declared_act_sends_the_payload_as_json_to_the_configured_path(
+    ops_adapter: RESTAdapter, ops_transport: FakeOpsTransport
+) -> None:
+    """Guards the wire shape of a declared write: verb, URL, and body together.
+
+    A write that reaches the right URL by the wrong verb, or arrives with the body
+    dropped, fails in the source system rather than here — after the ledger has
+    already recorded that Walnut did it.
+    """
+    receipt = ops_adapter.act(
+        _ops_action(ops_adapter, "place_hold", payload={"reason": "awaiting pharmacist review"})
+    )
+
+    method, url, kwargs = ops_transport.calls[-1]
+    assert (method, url) == ("POST", f"{_BASE_URL}/api/holds")
+    assert kwargs["json"] == {"reason": "awaiting pharmacist review"}
+    assert ops_transport.holds["hold-7"] == {"reason": "awaiting pharmacist review"}
+    assert receipt.result["id"] == "hold-7"
+    assert receipt.prior_state is None
+
+
+def test_declared_delete_addresses_the_record_and_sends_no_body(
+    ops_adapter: RESTAdapter, ops_transport: FakeOpsTransport
+) -> None:
+    """Guards against a body riding along on a DELETE.
+
+    Several real HTTP stacks and proxies reject or silently drop a DELETE with a
+    body, so a `release_hold` that carried one would appear to succeed here and fail
+    intermittently in front of a customer.
+    """
+    ops_adapter.act(_ops_action(ops_adapter, "place_hold", payload={"reason": "x"}))
+    ops_adapter.act(
+        _ops_action(
+            ops_adapter,
+            "release_hold",
+            target={"id": "hold-7"},
+            payload={"reason": "cleared by pharmacist"},
+        )
+    )
+
+    method, url, kwargs = ops_transport.calls[-1]
+    assert (method, url) == ("DELETE", f"{_BASE_URL}/api/holds/hold-7")
+    assert kwargs == {}
+    assert "hold-7" not in ops_transport.holds
+
+
+def test_declared_operation_with_an_id_placeholder_refuses_a_target_without_an_id(
+    ops_adapter: RESTAdapter, ops_transport: FakeOpsTransport
+) -> None:
+    """Guards against `/api/holds/{id}` being sent with the placeholder unfilled.
+
+    Formatting a missing id would either raise deep inside the transport or, worse,
+    produce a URL that addresses the collection — releasing every hold instead of one.
+    """
+    with pytest.raises(ValueError, match="must include 'id'"):
+        ops_adapter.act(_ops_action(ops_adapter, "release_hold"))
+    assert ops_transport.calls == []
+
+
+def test_declared_operation_without_an_id_placeholder_needs_no_target(
+    ops_adapter: RESTAdapter, ops_transport: FakeOpsTransport
+) -> None:
+    """Guards against a blanket id requirement on every declared write.
+
+    Creating a hold has nothing to address yet — demanding a target id would make
+    the whole create-shaped half of the mechanism unusable.
+    """
+    receipt = ops_adapter.act(_ops_action(ops_adapter, "place_hold", payload={"reason": "x"}))
+
+    method, url, _ = ops_transport.calls[-1]
+    assert (method, url) == ("POST", f"{_BASE_URL}/api/holds")
+    assert "record_id" not in receipt.result
+    assert receipt.action_id == "internal_wiki:place_hold:hold-7"
+
+
+def test_undo_of_a_declared_operation_issues_the_configured_reversal(
+    ops_adapter: RESTAdapter, ops_transport: FakeOpsTransport
+) -> None:
+    """Guards the promise `capabilities()` makes on behalf of a reversible write.
+
+    An INTERNAL action is auto-executed on the understanding that it can be taken
+    back. An undo that no-ops, or that reports success without reaching the source,
+    turns that understanding into a false one.
+    """
+    receipt = ops_adapter.act(_ops_action(ops_adapter, "place_hold", payload={"reason": "x"}))
+    assert "hold-7" in ops_transport.holds
+
+    undone = ops_adapter.undo(receipt)
+
+    method, url, kwargs = ops_transport.calls[-1]
+    assert (method, url) == ("DELETE", f"{_BASE_URL}/api/holds/hold-7")
+    assert kwargs == {}
+    assert "hold-7" not in ops_transport.holds
+    assert undone.is_undone
+    assert undone.executed_at == receipt.executed_at
+
+
+def test_undo_addresses_the_handle_named_by_result_id_field(
+    ops_adapter: RESTAdapter, ops_transport: FakeOpsTransport
+) -> None:
+    """Guards against the undo reaching for `id` when the source names it otherwise.
+
+    The ticket API returns both `ticket_ref` (the real handle) and an `id` that
+    addresses nothing. Defaulting to `id` would send a DELETE that either 404s or,
+    at a source where that id is meaningful, deletes the wrong record.
+    """
+    receipt = ops_adapter.act(_ops_action(ops_adapter, "open_ticket", payload={"summary": "s"}))
+    assert receipt.result["ticket_ref"] == "T-9"
+
+    ops_adapter.undo(receipt)
+
+    method, url, _ = ops_transport.calls[-1]
+    assert (method, url) == ("DELETE", f"{_BASE_URL}/api/tickets/T-9")
+    assert ops_transport.tickets == {}
+
+
+def test_undo_of_a_declared_operation_with_no_undo_config_says_so_plainly(
+    ops_adapter: RESTAdapter, ops_transport: FakeOpsTransport
+) -> None:
+    """Guards against an irreversible write being quietly marked undone.
+
+    `release_hold` declares no reversal. The failure mode worth preventing is a
+    receipt that comes back `is_undone` while the hold is still released — a steward
+    reading the audit trail would believe the system had put it back.
+    """
+    ops_adapter.act(_ops_action(ops_adapter, "place_hold", payload={"reason": "x"}))
+    receipt = ops_adapter.act(
+        _ops_action(ops_adapter, "release_hold", target={"id": "hold-7"})
+    )
+    calls_before = len(ops_transport.calls)
+
+    with pytest.raises(RuntimeError, match="by hand"):
+        ops_adapter.undo(receipt)
+
+    assert not receipt.is_undone
+    assert len(ops_transport.calls) == calls_before
+
+
+def test_declared_operation_rejects_a_traversal_id_before_anything_is_sent(
+    ops_adapter: RESTAdapter, ops_transport: FakeOpsTransport
+) -> None:
+    """Guards the traversal chokepoint on the path that did not exist when it was written.
+
+    `_safe_id_segment` was introduced for `resolve()` and `annotate`. Declared
+    operations are a second, later way for an id from an unknown system to become a
+    URL segment — and this one is attached to a DELETE.
+    """
+    with pytest.raises(ValueError, match="traversal|escape"):
+        ops_adapter.act(
+            _ops_action(ops_adapter, "release_hold", target={"id": "../../etc/passwd"})
+        )
+    assert ops_transport.calls == []
+
+
+# -- declared-operation validation, at construction ---------------------------
+
+
+def test_unknown_tier_is_rejected_at_construction_and_names_the_valid_tiers(
+    ops_transport: FakeOpsTransport,
+) -> None:
+    """Guards against a typo'd tier becoming a silent default.
+
+    A misspelled `"INTERNALL"` that fell back to TRIVIAL would auto-execute a write
+    that the customer meant to gate — and nothing downstream could tell.
+    """
+    with pytest.raises(ValueError, match="not one of") as excinfo:
+        _make_adapter(
+            ops_transport,
+            operations={
+                "place_hold": {"method": "POST", "path": "/api/holds", "tier": "INTERNALL"},
+            },
+        )
+    message = str(excinfo.value)
+    assert all(tier in message for tier in ("TRIVIAL", "INTERNAL", "GATED", "FORBIDDEN"))
+
+
+def test_declaring_a_read_method_as_an_operation_is_rejected_at_construction(
+    ops_transport: FakeOpsTransport,
+) -> None:
+    """Guards against a GET entering the action vocabulary.
+
+    An operation is something the ledger records as a change to a source system. A
+    read declared as one would produce an approval request, a receipt, and an undo
+    for an event that never happened.
+    """
+    with pytest.raises(ValueError, match="explicit write method"):
+        _make_adapter(
+            ops_transport,
+            operations={
+                "read_holds": {"method": "GET", "path": "/api/holds", "tier": "TRIVIAL"},
+            },
+        )
+
+
+def test_redeclaring_annotate_is_rejected_at_construction(
+    ops_transport: FakeOpsTransport,
+) -> None:
+    """Guards against two definitions of one operation name.
+
+    `act()` checks declared operations first, so a redeclared `annotate` would
+    shadow the built-in one — and `capabilities()` would still report it at the
+    built-in TRIVIAL tier while a different endpoint was being called.
+    """
+    with pytest.raises(ValueError, match="built in and cannot be redeclared"):
+        _make_adapter(
+            ops_transport,
+            operations={
+                "annotate": {"method": "POST", "path": "/api/notes", "tier": "GATED"},
+            },
+        )
+
+
+def test_operation_without_a_path_is_rejected_at_construction(
+    ops_transport: FakeOpsTransport,
+) -> None:
+    """Guards against a pathless operation surviving until someone invokes it.
+
+    It would appear in `capabilities()`, be approved by a human, and only then fail —
+    the failure landing on the steward who approved it rather than on the config.
+    """
+    with pytest.raises(ValueError, match="non-empty 'path'"):
+        _make_adapter(
+            ops_transport,
+            operations={"place_hold": {"method": "POST", "tier": "INTERNAL"}},
+        )
+
+
+def test_undo_declared_without_a_path_is_rejected_at_construction(
+    ops_transport: FakeOpsTransport,
+) -> None:
+    """Guards against an undo that exists in the config but cannot be performed.
+
+    The presence of an `undo` key is what makes the operation look reversible. A
+    half-written one is worse than none: it promises reversibility at approval time
+    and discovers it has no URL only when someone tries to take the action back.
+    """
+    with pytest.raises(ValueError, match="'undo' with no path"):
+        _make_adapter(
+            ops_transport,
+            operations={
+                "place_hold": {
+                    "method": "POST",
+                    "path": "/api/holds",
+                    "tier": "INTERNAL",
+                    "undo": {"method": "DELETE"},
+                },
+            },
+        )
+
+
+# -- no-operations regression --------------------------------------------------
+
+
+def test_annotate_is_untouched_when_no_operations_are_declared(
+    adapter: RESTAdapter, transport: FakeWikiTransport
+) -> None:
+    """Guards the adapters already in production against the new code path.
+
+    Every existing REST source was configured before declared operations existed and
+    passes `operations=None`. The two branches added to `act()`, `undo()`, and
+    `capabilities()` must leave the wire calls those sources make byte-identical.
+    """
+    assert adapter.capabilities().operations == {"annotate": ActionTier.TRIVIAL}
+
+    receipt = adapter.act(
+        Action(
+            app=adapter.name,
+            operation="annotate",
+            target={"id": "art-1"},
+            payload={"note": "flagged by walnut"},
+            justified_by=("internal_wiki:art-1",),
+        )
+    )
+    method, url, kwargs = transport.calls[-1]
+    assert (method, url) == ("POST", f"{_BASE_URL}/api/articles/art-1/annotate")
+    assert kwargs == {"json": {"note": "flagged by walnut"}}
+    assert receipt.result["record_id"] == "art-1"
+    assert receipt.action_id == "internal_wiki:annotate:art-1:500"
+
+    adapter.undo(receipt)
+    method, url, kwargs = transport.calls[-1]
+    assert (method, url) == ("DELETE", f"{_BASE_URL}/api/annotations/500")
+    assert kwargs == {}
+    assert transport.annotations == {}

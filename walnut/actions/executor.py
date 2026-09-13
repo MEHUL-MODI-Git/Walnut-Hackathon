@@ -237,11 +237,23 @@ class ActionExecutor:
 
     # -- undo ---------------------------------------------------------------
 
-    def undo(self, action_id: str) -> ActionReceipt:
-        """Reverse a previously executed action.
+    def undo(self, action_id: str) -> ActionReceipt | Refusal:
+        """Reverse a previously executed action — through the same gate it would need
+        if it had been asked for by name.
 
-        Reversal goes back through the adapter that performed it, so each app can
-        retract in whatever way preserves its own audit trail.
+        **Undo is not automatically safer than the thing it undoes.** Placing a hold
+        on a queued dose is INTERNAL because it fails safe; releasing that hold is
+        GATED because it does not. But the release arrives by two different doors —
+        `release_hold`, and "undo the place_hold" — and this method used to open the
+        second one with no tier check and no gate at all. The agent could reach the
+        dose-goes-back-out outcome in two steps that both looked routine, and the
+        asymmetry the product states out loud bought nothing against anyone who took
+        the second step. A control with a way around it is not a control.
+
+        So the reversal is tiered on its own terms. An adapter that can work out what
+        its undo actually does says so through `undo_tier`; otherwise the reversal
+        inherits the tier of the action it reverses, which is the conservative
+        reading and never weaker than before.
         """
         receipt = self.ledger.receipts.get(action_id)
         if receipt is None:
@@ -249,10 +261,42 @@ class ActionExecutor:
         if receipt.is_undone:
             return receipt
 
-        adapter = self._adapters[receipt.action.app]
+        action = receipt.action
+        adapter = self._adapters[action.app]
+
+        tier = None
+        if hasattr(adapter, "undo_tier"):
+            tier = adapter.undo_tier(action.operation)
+        if tier is None:
+            tier = adapter.capabilities().tier_of(action.operation)
+
+        if tier_requires_human(tier):
+            context = (
+                f"UNDO {action.app}.{action.operation} — reversing this carries tier "
+                f"{tier.name}, because the reversal is itself a consequential write.\n"
+                f"\nOriginal action: {action.rationale or 'no rationale given'}"
+            )
+            decision = self._gate.request(action, context)
+            if not decision.approved:
+                return Refusal(
+                    reason=(
+                        RefusalReason.GATE_TIMEOUT
+                        if decision.timed_out
+                        else RefusalReason.GATE_DENIED
+                    ),
+                    action=action,
+                    explanation=(
+                        f"Undoing {action.app}.{action.operation} needs the same "
+                        f"approval as performing its reversal directly, and the gate "
+                        f"did not approve ({decision.decided_by})"
+                        + (f": {decision.note}" if decision.note else "")
+                    ),
+                    evidence_ids=tuple(action.justified_by),
+                )
+
         undone = adapter.undo(receipt)
         self.ledger.receipts[action_id] = undone
-        self._trace_decision(receipt.action, "undone", 1.0, action_id)
+        self._trace_decision(action, "undone", 1.0, action_id)
         return undone
 
     # -- internals ----------------------------------------------------------

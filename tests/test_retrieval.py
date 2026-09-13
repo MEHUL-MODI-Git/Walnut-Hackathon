@@ -160,12 +160,26 @@ def test_a_zero_hit_query_proves_the_guarantee_rather_than_saying_no_results(cli
     assert "0 results" not in body
 
 
-def test_an_unreachable_internal_system_is_reported_not_hidden(client):
-    """The dispensary service is not running in tests. It must surface as a source
-    that could not be searched — silence here would be indistinguishable from a
-    source that was searched and held nothing."""
-    client.get("/")
+def test_an_unreachable_internal_system_is_reported_not_hidden(client, monkeypatch):
+    """An internal system that cannot be reached must surface as a source that could
+    not be searched — silence here is indistinguishable from a source that WAS
+    searched and held nothing, which is the one confusion this product exists to end.
+
+    Pointed at a dead port on purpose. The first version of this test asserted on the
+    real dispensary being down, so it passed only while nobody happened to be running
+    the service — and it started failing the moment the demo stack was up, which is
+    exactly when the console most needs to be right.
+    """
     from walnut.web import app as web
+
+    monkeypatch.setattr(web, "state", web.State())
+    monkeypatch.setenv("DISPENSARY_URL", "http://127.0.0.1:9")  # discard port: nothing listens
+    monkeypatch.setattr("walnut.internal_systems.DISPENSARY_URL", "http://127.0.0.1:9")
+    monkeypatch.setitem(
+        __import__("walnut.internal_systems", fromlist=["DISPENSARY_SPEC"]).DISPENSARY_SPEC,
+        "base_url", "http://127.0.0.1:9",
+    )
+    client.get("/")
 
     names = [n for n, _ in web.state.unsearchable()]
     assert "dispensary" in names, (

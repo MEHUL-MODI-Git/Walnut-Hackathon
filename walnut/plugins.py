@@ -131,6 +131,13 @@ def build_from_spec(spec: dict[str, Any]) -> Adapter:
             uri_field=spec.get("uri_field"),
             uri_template=spec.get("uri_template"),
             headers=spec.get("headers"),
+            # Dropped silently before this: a source could configure a write surface
+            # and get a read-only adapter back, with the console showing it connected
+            # and capable. The spec is the customer's description of their own system;
+            # quietly discarding half of it is the worst way to disagree with them.
+            annotate_path=spec.get("annotate_path"),
+            delete_path=spec.get("delete_path"),
+            operations=spec.get("operations"),
         )
 
     raise ValueError(f"Unknown source kind {kind!r}. Known: sql, rest.")

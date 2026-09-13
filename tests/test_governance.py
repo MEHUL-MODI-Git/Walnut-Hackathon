@@ -614,3 +614,69 @@ def test_a_single_digit_fabrication_is_refused():
         Claim("3 patients were harmed.", (fact.node_id,))]), b)
     assert out.facts == [], "a fabricated single-digit count rendered as a cited fact"
     assert "3" in out.refusals[0][1]
+
+
+def test_an_absence_statement_is_not_read_as_its_own_opposite():
+    """P0. "no new symptoms reported today" matched the presence marker `reported`
+    and was published as a contradiction against the record saying the field was
+    empty — an assertion of absence rendered on screen as evidence of presence.
+
+    Two such inversions outranked the one true contradiction on the demo's hero
+    patient, so the real finding was the third alert down and looked like more of
+    the same noise. A loose presence marker does not add noise; it inverts meaning.
+    """
+    assert classify(
+        "Notes: patient reviewed, no new symptoms reported today."
+    ) is not ClaimStatus.PRESENT
+    assert classify("she denies any reaction to penicillin") is not ClaimStatus.PRESENT
+    # The genuine report still classifies.
+    assert classify(
+        "she told me she came out in a rash all over as a kid after amoxicillin"
+    ) is ClaimStatus.PRESENT
+
+
+def test_acknowledging_a_flag_is_not_reporting_a_finding():
+    """P0. `flagging` matched "Confirmed and updated on our side, thanks for
+    flagging" — an email about a POSTAL ADDRESS — and raised it as a clinical
+    contradiction about the patient's allergy record."""
+    assert classify(
+        "Confirmed and updated on our side, thanks for flagging."
+    ) is not ClaimStatus.PRESENT
+
+
+def test_a_conflict_quotes_the_clause_not_the_whole_record():
+    """A database row concatenated into text is hundreds of characters of
+    demographics with the disputed word buried inside. Quoting the record instead
+    of the claim is how an alert that fires correctly still gets missed."""
+    from walnut.adapters.fixture import load_all_fixtures
+    from walnut.clinical_sources import register_clinical_sources
+    from walnut.contradiction import detect_contradictions
+    from walnut.plugins import SourceRegistry
+
+    b = Brain()
+    for a in load_all_fixtures().values():
+        for e in a.fetch(limit=200):
+            b.remember(e)
+    registry = SourceRegistry()
+    register_clinical_sources(registry)
+    for a in registry.usable_adapters().values():
+        for e in a.fetch(limit=200):
+            b.remember(e)
+
+    clinical = [c for c in detect_contradictions(b) if c.subject.startswith("MR-")]
+    assert len(clinical) == 1, (
+        f"expected exactly the allergy contradiction, got {len(clinical)}: "
+        + "; ".join(f"{c.subject} {c.apps}" for c in clinical)
+    )
+    conflict = clinical[0]
+
+    absent = conflict.left if conflict.left.status is ClaimStatus.ABSENT else conflict.right
+    # The named field and its value — the whole claim, and nothing else.
+    assert absent.quote() == "Allergies: None recorded"
+    assert len(absent.quote()) < len(absent.fact.text) / 4
+
+    # Prose keeps the sentence, and is not labelled with the column it happens to
+    # live in: "Text: just spoke with…" names the schema, not the claim.
+    other = conflict.right if absent is conflict.left else conflict.left
+    assert not other.quote().lower().startswith("text:")
+    assert "amoxicillin" in other.quote()

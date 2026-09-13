@@ -103,7 +103,7 @@ def act2(agent: WalnutAgent, gate: QueueGate) -> None:
     print("\nthe one the customer is asking about:\n")
     print(conflict.render())
 
-    plan = build_plan(conflict, agent.brain)
+    plan = build_plan(conflict, agent.brain, adapters=agent.adapters)
 
     print(f"\nproposing {len(plan)} actions across {len({p['app'] for p in plan})} apps\n")
     for result in agent.execute_all(agent.propose_for_conflict(conflict, plan)):

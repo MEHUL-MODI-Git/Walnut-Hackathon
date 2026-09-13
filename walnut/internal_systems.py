@@ -38,12 +38,42 @@ DISPENSARY_SPEC: dict[str, Any] = {
     "item_path": "/api/prescriptions/{id}",
     "records_key": "data",
     "id_field": "id",
-    "text_fields": ["drug", "dose", "instructions", "status", "dispense_status"],
+    # The patient is part of the text, not just a column. Without it a prescription
+    # shares no searchable subject with the nurse's message or the chart, so the
+    # pharmacy's own queue — the system holding the dose about to be handed over —
+    # never appeared in an answer about the patient it belongs to. A source that is
+    # connected, healthy, and invisible to every question is worse than a disconnected
+    # one, because the coverage table reports it as searched.
+    "text_fields": ["patient_mrn", "patient_name", "drug", "dose", "instructions",
+                    "status", "dispense_status"],
     "author_field": "prescriber",
     "timestamp_field": "prescribed_at",
     "uri_field": "url",
     "annotate_path": "/api/annotations?prescription_id={id}",
     "delete_path": "/api/annotations/{id}",
+    # What this system lets Walnut do, declared by the people who run it.
+    #
+    # The tiers are the point. They follow the DIRECTION OF RISK, not the kind of
+    # write: placing a hold stops a dose from going out, which fails safe, so the
+    # agent may do it alone; releasing a hold puts a dose back into a patient's hand,
+    # which fails dangerous, so a human confirms. The agent can stop a dose. It
+    # cannot start one. "Writes are dangerous" would have got this exactly backwards
+    # — it is the *release* that needs the human, and it is the *hold* that must not
+    # wait for one.
+    "operations": {
+        "place_hold": {
+            "method": "POST",
+            "path": "/api/holds",
+            "tier": "INTERNAL",
+            "undo": {"method": "DELETE", "path": "/api/holds/{id}"},
+            "result_id_field": "id",
+        },
+        "release_hold": {
+            "method": "DELETE",
+            "path": "/api/holds/{id}",
+            "tier": "GATED",
+        },
+    },
 }
 
 

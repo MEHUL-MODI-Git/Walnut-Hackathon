@@ -186,15 +186,10 @@ def build_briefing(assembly: Any, conflicts: list[Any] | None = None) -> Briefin
     #    timeline, because burying it in chronological order is how it got missed the
     #    first time.
     flagged = [
-        Line("Reported, not on record", _first_sentence(c.right.fact.text, 180),
-             c.right.fact, flag="warn")
+        Line("Reported, not on record", claim.quote(180), claim.fact, flag="warn")
         for c in brief.conflicts
-        if c.right.fact.app not in structured_apps
-    ] + [
-        Line("Reported, not on record", _first_sentence(c.left.fact.text, 180),
-             c.left.fact, flag="warn")
-        for c in brief.conflicts
-        if c.left.fact.app not in structured_apps
+        for claim in (c.right, c.left)
+        if claim.fact.app not in structured_apps
     ]
     if flagged:
         brief.sections.append(Section("Needs attention", flagged[:3]))

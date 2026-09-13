@@ -261,3 +261,33 @@ def test_the_audit_page_reports_refusals_and_admits_its_limits(client):
     assert "Refusals" in body
     assert "does not prove" in body, "the audit page makes no honest limitations claim"
     assert "tripwire, not a perimeter" in body
+
+
+def test_every_screen_in_the_console_actually_renders(client):
+    """A syntax error in one screen module took /knowledge to a 500 and the whole
+    suite still passed — no test walked the routes. The screens are imported lazily
+    inside their handlers, so a broken screen does not even fail at startup: the app
+    boots, five pages work, and the sixth is a stack trace nobody sees until it is on
+    a projector.
+
+    Parameter-free GET routes only; the ones taking a path parameter are covered by
+    their own tests with a real id.
+    """
+    from walnut.web.app import app as web_app
+
+    paths = sorted(
+        route.path
+        for route in web_app.routes
+        if "GET" in getattr(route, "methods", set())
+        and "{" not in getattr(route, "path", "{")
+    )
+    assert len(paths) >= 6, f"expected the full console, found only {paths}"
+
+    broken: list[str] = []
+    for path in paths:
+        response = client.get(path, follow_redirects=True)
+        if response.status_code != 200:
+            broken.append(f"{path} -> {response.status_code}")
+        elif path != "/healthz" and "Walnut" not in response.text:
+            broken.append(f"{path} -> 200 but rendered no page shell")
+    assert not broken, "screens that do not render: " + "; ".join(broken)
