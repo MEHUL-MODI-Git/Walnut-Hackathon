@@ -13,3 +13,4 @@ build/
 runs/
 walnut_plugins/example_docs/
 demo/.cache/
+.DS_Store
