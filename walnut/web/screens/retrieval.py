@@ -1,192 +1,156 @@
-"""Retrieval — everything the company knows about one thing.
+"""Retrieval — ask about anything, get an answer.
 
-This is the product. A person asks about a patient, a colleague, or a customer, and gets
-back everything, from every connected system, with its source attached — no matter how
-scattered it was or what name each system filed it under.
+The first version of this screen grouped records by which app they came from, which is
+how the system thinks, not how a person asks. Nobody wants twelve rows sorted by source.
+They want the answer, organised by meaning, with the receipts available if they care.
 
-Two moments carry the screen, and both are cheap because the data already exists:
+So: a briefing. Identity, what the record says, what the instruments say, what needs
+attention, what happened recently. **Every line carries its citation folded away behind
+a marker** — always there, never in the way. That is the whole design argument: a
+citation you must read is noise, and a citation you cannot reach is a claim. It has to
+be one keystroke away and no closer.
 
-**The aliases.** You asked for one name; here are the five it is stored under. A Slack
-message written by `priya`, a GitHub commit by `priya-p` and a Notion page by `P. Patel`
-are one person, and saying so out loud is the clearest possible demonstration that the
-scattering was undone.
-
-**The coverage table.** Every source is listed on every result, including the ones that
-had nothing. This is the part most systems omit, and it is the part that makes the
-promise checkable: a search that quietly read four of six sources looks identical to one
-that read all six, so a source that was searched and came back empty must be *shown*
-coming back empty. That is the promise working, not a gap in it — which is why the
-"nothing" state is rendered in a quiet neutral and never in red.
-
-Only one state on this screen is a failure: a source that could **not** be searched.
+Coverage moves below the answer. It is the proof, and proof belongs after the claim —
+but it stays on every result, including the sources that held nothing, because a search
+that quietly skipped four systems must never look like one that read them all.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from ..design import empty, esc, meter, panel, pill, rail, table
+from ..design import empty, esc, panel, table
 
 __all__ = ["page_retrieval"]
 
-EXAMPLES = ("Ankusha Rao", "Priya Patel", "co-amoxiclav")
+EXAMPLES = ("Ankusha Rao", "MR-4417", "Priya Patel")
 
 
-def _coverage_table(assembly: Any, unsearchable: list[tuple[str, str]]) -> str:
-    """Three states, deliberately not a red/green binary.
+def _cite(fact: Any) -> str:
+    """A citation marker that opens. Closed by default — the receipt, not the content."""
+    if fact is None:
+        return ""
+    return (f'<details class="cite"><summary>{esc(fact.app)}</summary>'
+            f'<div class="cite-body">{esc(fact.text[:600])}'
+            f'<div class="c">{esc(fact.cite())}</div></div></details>')
 
-    `unsearchable` carries connectors that errored or custom sources failing
-    conformance. Without unioning those in, a broken connector simply *vanishes* from
-    the table — and an honest search would be indistinguishable from one that skipped
-    four systems. That union is the honesty of the entire screen.
-    """
+
+def _line(label: str, value: str, fact: Any, flag: str = "") -> str:
+    return (f'<div class="ln{" warn" if flag else ""}">'
+            f'<div class="ln-l">{esc(label)}</div>'
+            f'<div class="ln-v">{esc(value)}{_cite(fact)}</div></div>')
+
+
+def _conflict_block(conflict: Any) -> str:
+    left, right = conflict.left.fact, conflict.right.fact
+    return f"""<div class="alert">
+      <div class="alert-h">Conflicting information · {esc(conflict.subject)}</div>
+      <div class="alert-b">
+        <div class="ln"><div class="ln-l">{esc(left.app)} says</div>
+          <div class="ln-v">{esc(left.text[:150])}{_cite(left)}</div></div>
+        <div class="ln"><div class="ln-l">{esc(right.app)} says</div>
+          <div class="ln-v">{esc(right.text[:150])}{_cite(right)}</div></div>
+      </div>
+      <div class="alert-f">Not ranked automatically — recency and source authority are
+        heuristics, not evidence. <a href="/knowledge#conflicts">Review →</a></div>
+    </div>"""
+
+
+def _coverage(assembly: Any, unsearchable: list[tuple[str, str]]) -> str:
     rows = []
     for cov in assembly.coverage:
         if cov.state == "found":
-            mark = f'<span class="dot found"></span>found'
-            hits = f'<b class="num">{cov.hits}</b>'
-            note = ""
+            rows.append([f'<b>{esc(cov.app)}</b>',
+                         '<span class="dot found"></span>found',
+                         f'<b class="num">{cov.hits}</b>', ""])
         else:
-            mark = f'<span class="dot nothing"></span>nothing'
-            hits = '<span class="num">0</span>'
-            note = '<span class="pill quiet">searched · no match</span>'
-        rows.append([
-            f'<b>{esc(cov.app)}</b>', mark, hits,
-            f'<span class="num">{cov.total_held}</span>', note,
-        ])
-
+            rows.append([f'<b>{esc(cov.app)}</b>',
+                         '<span class="dot nothing"></span>nothing',
+                         '<span class="num">0</span>',
+                         '<span class="pill quiet">searched · no match</span>'])
     for app, reason in unsearchable:
-        rows.append([
-            f'<b>{esc(app)}</b>',
-            '<span class="dot miss"></span>not searched',
-            "—", "—",
-            f'{esc(reason)} · <a href="/connectors/{esc(app)}">fix</a>',
-        ])
+        rows.append([f'<b>{esc(app)}</b>',
+                     '<span class="dot miss"></span>not searched', "—",
+                     f'{esc(reason[:60])} · <a href="/connectors/{esc(app)}">fix</a>'])
 
     searched = len(assembly.coverage)
     found = len(assembly.apps_with_hits)
-    lead = (
-        f"<p class='ph'><b>{searched} source{'s' if searched != 1 else ''} searched. "
-        f"{found} had something. {searched - found} had nothing — and that is a result, "
-        f"not a gap.</b></p>"
-    )
-    if unsearchable:
-        lead += (f'<div class="note"><b>{len(unsearchable)} source could not be '
-                 f'searched.</b> Its records are not represented in this answer.</div>')
-
-    return lead + table(
-        ["source", "", "found", "held", ""], rows,
-        empty_text="No sources connected yet.",
-    )
-
-
-def _results(assembly: Any, mode: str) -> str:
-    if mode == "time":
-        rows = "".join(
-            f'<div class="rail"><div class="t">'
-            f'<span class="pill quiet">{esc(f.app)}</span> '
-            f'{esc((f.occurred_at or f.pointer.retrieved_at).strftime("%Y-%m-%d"))} — '
-            f'{esc(f.text[:260])}</div>'
-            f'<div class="c">{esc(f.cite())}</div></div>'
-            for f in assembly.timeline()
-        )
-        return rows or empty("Nothing to show in order.")
-
-    out = []
-    for app, facts in sorted(assembly.by_app.items(), key=lambda kv: -len(kv[1])):
-        head = (f'<h2>{esc(app)} <span class="pill quiet">{len(facts)} '
-                f'record{"s" if len(facts) != 1 else ""}</span></h2>')
-        shown = "".join(rail(f.text, f.cite()) for f in facts[:3])
-        rest = ""
-        if len(facts) > 3:
-            more = "".join(rail(f.text, f.cite()) for f in facts[3:])
-            rest = (f"<details><summary>show {len(facts) - 3} more from "
-                    f"{esc(app)}</summary>{more}</details>")
-        out.append(head + shown + rest)
-    return "".join(out)
+    lead = (f'<p class="cov-lead">Looked in <b>{searched + len(unsearchable)}</b> '
+            f'sources. <b>{found}</b> had something. '
+            f'{searched - found} had nothing — which is a result, not a gap.</p>')
+    return lead + table(["source", "", "found", ""], rows)
 
 
 def page_retrieval(
     query: str,
     assembly: Any = None,
     *,
+    briefing: Any = None,
     unsearchable: list[tuple[str, str]] | None = None,
     held: dict[str, int] | None = None,
-    mode: str = "source",
 ) -> str:
-    """The hero screen. `assembly` is `walnut.retrieval.assemble()`'s result."""
     unsearchable = unsearchable or []
     held = held or {}
 
-    search = f"""<form method="get" action="/">
-      <label for="q" class="lbl">Ask about any person, patient, customer or record</label>
-      <div class="row" style="margin-top:8px">
-        <input id="q" name="q" class="big" value="{esc(query)}"
-               placeholder="e.g. Ankusha Rao" autofocus style="flex:1;min-width:260px">
-        <button class="btn">Search everything</button>
-      </div></form>"""
+    ask = f"""<form method="get" action="/" class="ask">
+      <input id="q" name="q" class="big" value="{esc(query)}"
+             placeholder="Ask about anyone or anything — a patient, a colleague, a record"
+             autofocus aria-label="Ask about anyone or anything">
+      <button class="btn">Ask</button></form>"""
 
+    # ---- nothing asked yet ----------------------------------------------
     if assembly is None or not query.strip():
-        chips = "".join(
-            f'<a class="chip" href="/?q={esc(e)}"><b>{esc(e)}</b></a>' for e in EXAMPLES
-        )
-        strip = table(
-            ["source", "records held"],
-            [[f"<b>{esc(a)}</b>", f'<span class="num">{n}</span>']
-             for a, n in sorted(held.items())],
-            empty_text="No sources connected yet.",
-        )
-        return (f'<div class="ph"><h1>Retrieval</h1><p>One question, answered from every '
-                f'connected system, with every claim carrying its source.</p></div>'
-                f'{search}<div style="margin-top:16px">{chips}</div>'
-                + panel("What is connected", strip)
-                + '<div class="note">Ask about a person and you get every system they '
-                  'appear in, under every name they are filed under.</div>')
+        chips = "".join(f'<a class="chip" href="/?q={esc(e)}">{esc(e)}</a>'
+                        for e in EXAMPLES)
+        rows = [[f"<b>{esc(a)}</b>", f'<span class="num">{n}</span>']
+                for a, n in sorted(held.items())]
+        return (f'<div class="ph"><h1>What would you like to know?</h1>'
+                f'<p>One question, answered from every system at once. Every line shows '
+                f'where it came from.</p></div>{ask}'
+                f'<div class="row" style="margin-top:14px">{chips}</div>'
+                + panel("Connected", table(["source", "records"], rows,
+                                           empty_text="Nothing connected yet.")))
+
+    # ---- nothing found ---------------------------------------------------
+    if assembly.total == 0:
+        return (f'<div class="ph"><h1>Nothing about “{esc(query)}”</h1>'
+                f'<p>Here is where we looked.</p></div>{ask}'
+                + panel("Coverage", _coverage(assembly, unsearchable))
+                + f'<div class="note"><b>Every source was searched.</b> None of them '
+                  f'hold anything about “{esc(query)}”.</div>')
 
     # ---- an answer -------------------------------------------------------
+    head = [f'<div class="ph"><h1>{esc(query)}</h1>']
+    if briefing is not None and briefing.headline:
+        head.append(f'<p class="ident">{esc(briefing.headline)}'
+                    f'{_cite(briefing.headline_fact)}</p>')
+    head.append(f'<p class="src">{assembly.total} records · '
+                f'{len(assembly.apps_with_hits)} of '
+                f'{len(assembly.coverage) + len(unsearchable)} sources'
+                + (f' · known as {", ".join(esc(a) for a in assembly.aliases[:5])}'
+                   if assembly.aliases else "")
+                + "</p></div>")
+    body = ["".join(head), ask]
 
-    aliases = ""
-    if assembly.aliases:
-        chips = "".join(
-            f'<span class="chip"><b>{esc(a)}</b></span>' for a in assembly.aliases
-        )
-        aliases = panel(
-            "Known as",
-            chips + '<div class="note"><b>You asked for one name.</b> These are the '
-                    f'{len(assembly.aliases)} it is stored under across your systems.</div>',
-        )
+    if briefing is not None:
+        body.extend(_conflict_block(c) for c in briefing.conflicts[:2])
 
-    toggle = (f'<div class="row"><a class="chip" href="/?q={esc(query)}&mode=source">'
-              f'{"<b>By source</b>" if mode != "time" else "By source"}</a>'
-              f'<a class="chip" href="/?q={esc(query)}&mode=time">'
-              f'{"<b>By time</b>" if mode == "time" else "By time"}</a></div>')
+        for section in briefing.sections:
+            rows = "".join(_line(l.label, l.value, l.fact, l.flag) for l in section.lines)
+            body.append(panel(section.title, rows))
 
-    related = ""
+        if briefing.timeline:
+            rows = "".join(_line(l.label, l.value, l.fact, l.flag)
+                           for l in briefing.timeline)
+            body.append(panel("Recently", rows))
+
     if assembly.related_subjects:
-        chips = "".join(
-            f'<a class="chip" href="/?q={esc(s)}">{esc(s)}</a>'
-            for s in assembly.related_subjects
-        )
-        related = panel("These records also mention", chips)
+        chips = "".join(f'<a class="chip" href="/?q={esc(s)}">{esc(s)}</a>'
+                        for s in assembly.related_subjects)
+        body.append(panel("Also mentioned", chips))
 
-    if assembly.total == 0:
-        # A negative that proves the guarantee, rather than a bare "0 results".
-        return (f'<div class="ph"><h1>Everything about “{esc(query)}”</h1>'
-                f'<p>Nothing found — and here is where we looked.</p></div>{search}'
-                + panel("Coverage", _coverage_table(assembly, unsearchable))
-                + f'<div class="note"><b>Every source was searched. None of them hold '
-                  f'anything about “{esc(query)}”.</b></div>')
-
-    return (
-        f'<div class="ph"><h1>Everything about “{esc(query)}”</h1>'
-        f'<p class="num">{assembly.total} records · {len(assembly.apps_with_hits)} of '
-        f'{len(assembly.coverage) + len(unsearchable)} sources'
-        + (f' · resolved through {len(assembly.aliases)} identities' if assembly.aliases else "")
-        + f'</p></div>{search}'
-        + aliases
-        + panel("Coverage", _coverage_table(assembly, unsearchable))
-        + panel("Records", toggle + _results(assembly, mode))
-        + related
-        + '<div class="note">Act on this in <a href="/actions?tab=activity">Actions</a> — '
-          'every action must cite the evidence that justified it.</div>'
-    )
+    body.append(panel("Where this came from", _coverage(assembly, unsearchable)))
+    body.append('<div class="note">Act on this in '
+                '<a href="/actions?tab=activity">Actions</a> — every action must cite '
+                'the evidence that justified it.</div>')
+    return "".join(body)

@@ -268,9 +268,22 @@ class FixtureAdapter:
 # ---------------------------------------------------------------------------
 
 
-def load_all_fixtures(fixture_dir: Path | None = None) -> dict[str, FixtureAdapter]:
-    """Every app, ready to ingest. The offline equivalent of five live connections."""
-    return {app: FixtureAdapter(app, fixture_dir) for app in _SPEC}
+# What a clinic group actually runs. GitHub is a real, tested connector and stays in
+# the product — but a clinic does not use it, and seeding it into the demo would be
+# including an app to show off a feature rather than because the business has one.
+CLINIC_APPS = ("slack", "linear", "notion", "email")
+
+
+def load_all_fixtures(
+    fixture_dir: Path | None = None, apps: tuple[str, ...] | None = None
+) -> dict[str, FixtureAdapter]:
+    """Fixture-backed adapters, ready to ingest.
+
+    `apps` selects which ones. Defaults to every app with a spec — tests rely on that —
+    while the running product asks for `CLINIC_APPS`.
+    """
+    wanted = apps or tuple(_SPEC)
+    return {app: FixtureAdapter(app, fixture_dir) for app in wanted if app in _SPEC}
 
 
 def load_identities(fixture_dir: Path | None = None) -> list[Any]:

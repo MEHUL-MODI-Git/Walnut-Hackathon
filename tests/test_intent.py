@@ -33,11 +33,12 @@ def rig():
 def test_a_two_part_request_becomes_two_actions_in_the_right_apps(rig):
     brain, adapters = rig
     intent = parse_intent(
-        "file a Linear issue about MED-412 and comment on the PR", brain, adapters
+        "file a Linear issue about MR-4417 and update the status of the notion page",
+        brain, adapters,
     )
     routed = {(p.action.app, p.action.operation) for p in intent.proposed}
     assert ("linear", "create_issue") in routed
-    assert ("github", "comment") in routed
+    assert ("notion", "set_property") in routed
 
 
 def test_the_customer_reply_routes_to_email_not_slack(rig):
@@ -61,9 +62,16 @@ def test_a_page_update_routes_to_notion(rig):
 
 
 def test_an_ambiguous_app_becomes_a_question(rig):
-    """Both Linear and GitHub can take a comment. Guessing writes to the wrong one."""
-    brain, adapters = rig
-    intent = parse_intent("comment on something", brain, adapters)
+    """When two connected apps can both perform an operation, guessing writes to the
+    wrong system — so the parser asks.
+
+    Tested against the FULL adapter set rather than the clinic's: the clinic runs no
+    two apps that share an operation, which is a property of that deployment, not of
+    the parser. The parser must still refuse to guess when a deployment does.
+    """
+    brain, _ = rig
+    every_app = load_all_fixtures()  # includes github, which also takes a comment
+    intent = parse_intent("comment on something", brain, every_app)
     assert intent.needs_clarification
     assert not intent.proposed
     assert any("could mean" in c for c in intent.clarifications)
@@ -136,7 +144,7 @@ def test_proposed_actions_aim_at_records_that_exist(rig):
     """Targets come from evidence locators, not from a guessed id — otherwise the
     action fails at the API boundary looking like a connector bug."""
     brain, adapters = rig
-    intent = parse_intent("comment on the PR about MED-412", brain, adapters)
+    intent = parse_intent("reply in the thread about MR-4417", brain, adapters)
     for proposal in intent.proposed:
         assert proposal.action.target, "an action was proposed with an empty target"
 
@@ -156,12 +164,11 @@ def client() -> TestClient:
 def test_typing_a_request_shows_what_it_would_do_before_doing_it(client):
     client.get("/")
     client.post("/request",
-                data={"request": "file a Linear issue about MED-412 and comment on the PR"},
+                data={"request": "file a Linear issue about MR-4417"},
                 follow_redirects=True)
-    body = client.get("/investigate").text
+    body = client.get("/actions?tab=activity").text
     assert "Proposed" in body
     assert "linear.create_issue" in body
-    assert "github.comment" in body
 
     from walnut.web import app as web
 
@@ -173,7 +180,7 @@ def test_typing_a_request_shows_what_it_would_do_before_doing_it(client):
 def test_executing_a_proposal_runs_it_through_the_normal_path(client):
     client.get("/")
     client.post("/request",
-                data={"request": "file a Linear issue about MED-412 and comment on the PR"},
+                data={"request": "file a Linear issue about MR-4417"},
                 follow_redirects=True)
     client.post("/request/execute", follow_redirects=True)
 
@@ -184,9 +191,11 @@ def test_executing_a_proposal_runs_it_through_the_normal_path(client):
     assert all(r.action.justified_by for r in executed)
 
 
-def test_an_ambiguous_request_renders_the_question(client):
+def test_an_unactionable_request_renders_the_question(client):
+    """A request naming no operation any connected app declares becomes a question,
+    listing what it CAN do — never a guess."""
     client.get("/")
-    client.post("/request", data={"request": "comment on something"},
+    client.post("/request", data={"request": "make me a sandwich"},
                 follow_redirects=True)
-    body = client.get("/investigate").text
+    body = client.get("/actions?tab=activity").text
     assert "Needs clarification" in body

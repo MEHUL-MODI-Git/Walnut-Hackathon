@@ -26,10 +26,17 @@ def manager() -> ConnectionManager:
 
 
 def test_every_app_starts_in_demo_and_is_immediately_usable(manager):
-    assert len(manager.all()) == 5
+    """Every app the demo company runs is usable before anything is connected.
+
+    Not every app Walnut *supports*: GitHub is a real, tested connector but a clinic
+    does not use one, so it ships with no seeded data. It stays connectable.
+    """
+    from walnut.adapters.fixture import CLINIC_APPS
+
+    assert len(manager.all()) == len(APP_SPECS)
     assert all(c.state is ConnectionState.DEMO for c in manager.all())
     adapters = manager.adapters()
-    assert set(adapters) == set(APP_SPECS)
+    assert set(adapters) == set(CLINIC_APPS)
     # Demo mode is not a stub: each adapter returns real, hashed, cited evidence.
     for app, adapter in adapters.items():
         records = adapter.fetch(limit=3)
@@ -170,10 +177,11 @@ def test_a_failed_connection_is_shown_but_does_not_break_the_app(client):
 
 
 def test_investigating_produces_cited_facts(client):
-    client.post("/investigate", data={"question": "is it shipped?"},
-                follow_redirects=True)
-    body = client.get("/investigate").text
-    assert "Facts" in body or "Refused" in body
+    """Asking is now Retrieval; the old path redirects there rather than 404ing."""
+    body = client.get("/?q=Ankusha+Rao").text
+    assert "Where this came from" in body
+    assert "records" in body
+    assert client.get("/investigate", follow_redirects=True).status_code == 200
 
 
 def test_acting_on_a_contradiction_executes_internally_and_gates_the_email(client):

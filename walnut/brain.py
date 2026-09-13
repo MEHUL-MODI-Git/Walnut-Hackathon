@@ -40,6 +40,15 @@ class Fact:
     author: str | None = None
     occurred_at: datetime | None = None
     attributes: dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict)
+    """The source's own structured row, where it had one.
+
+    Kept because a database record's COLUMNS are the most useful thing about it, and
+    they are unrecoverable from the text: adapters concatenate values with no labels,
+    so "Allergies: None recorded" arrives as the bare words "None recorded" sitting
+    between a problem list and a site name. Anything that wants to present a record as
+    fields rather than prose needs the row.
+    """
 
     def cite(self) -> str:
         who = f"{self.author} · " if self.author else ""
@@ -107,6 +116,7 @@ class Brain:
             author=evidence.author,
             occurred_at=evidence.occurred_at,
             attributes={"labels": list(evidence.labels)},
+            raw=dict(evidence.raw or {}),
         )
         self._facts[node_id] = fact
         return fact

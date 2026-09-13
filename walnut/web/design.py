@@ -171,6 +171,52 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-family:"IBM Plex Mo
 .rail .c{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted);
   margin-top:var(--s2);overflow-wrap:anywhere;letter-spacing:-.005em}
 
+/* ---- the briefing: built to be read at a glance, under pressure ---- */
+.ask{display:flex;gap:var(--s2);margin-bottom:var(--s5)}
+.ask input{flex:1;min-width:220px}
+.ph .ident{font-size:16px;color:var(--ink);margin-top:var(--s2);font-weight:450;
+  display:flex;align-items:baseline;gap:var(--s2);flex-wrap:wrap}
+.ph .src{font-size:12.5px;color:var(--muted);margin-top:var(--s2);
+  font-variant-numeric:tabular-nums}
+
+/* one statement per row: label left, value right, citation folded away */
+.ln{display:flex;gap:var(--s4);padding:11px 0;border-bottom:1px solid var(--rule-soft);
+  align-items:baseline}
+.ln:last-child{border-bottom:0}
+.ln:first-child{padding-top:0}
+.ln-l{flex:0 0 170px;font-size:12.5px;color:var(--muted);line-height:1.5}
+.ln-v{flex:1;min-width:0;font-size:15px;line-height:1.55;overflow-wrap:anywhere}
+.ln.warn .ln-v{font-weight:500}
+.ln.warn .ln-l{color:var(--attention);font-weight:600}
+@media(max-width:620px){.ln{display:block}.ln-l{margin-bottom:2px}}
+
+/* the citation. Closed by default — a receipt you can reach, never noise you must read */
+details.cite{display:inline-block;margin-left:var(--s2);vertical-align:baseline}
+details.cite>summary{display:inline-block;list-style:none;cursor:pointer;
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.02em;
+  color:var(--muted);background:var(--paper);border:1px solid var(--rule);
+  padding:1px 7px;border-radius:999px;transition:all var(--ease)}
+details.cite>summary::-webkit-details-marker{display:none}
+details.cite>summary:hover{color:var(--walnut);border-color:var(--walnut)}
+details.cite[open]>summary{color:var(--walnut);border-color:var(--walnut)}
+.cite-body{margin-top:var(--s2);padding:var(--s3);background:var(--paper);
+  border-left:2px solid var(--walnut);border-radius:0 var(--r-sm) var(--r-sm) 0;
+  font-size:13px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.cite-body .c{margin-top:var(--s2);font-family:"IBM Plex Mono",monospace;
+  font-size:11px;color:var(--muted);white-space:normal}
+
+/* the thing a clinician must not miss */
+.alert{border:1px solid color-mix(in srgb,var(--attention) 40%,var(--rule));
+  background:color-mix(in srgb,var(--attention) 6%,var(--surface));
+  border-radius:var(--r-md);margin-bottom:var(--s5);box-shadow:var(--shadow-1)}
+.alert-h{padding:var(--s4) var(--s5);font-weight:600;font-size:14.5px;
+  color:var(--attention);border-bottom:1px solid color-mix(in srgb,var(--attention) 22%,transparent)}
+.alert-b{padding:var(--s3) var(--s5)}
+.alert-f{padding:var(--s3) var(--s5) var(--s4);font-size:12.5px;color:var(--muted);
+  border-top:1px solid color-mix(in srgb,var(--attention) 18%,transparent)}
+.cov-lead{font-size:13.5px;margin-bottom:var(--s4);color:var(--ink)}
+.cov-lead b{font-variant-numeric:tabular-nums}
+
 /* ---- forms ---- */
 label{display:block;font-size:11.5px;color:var(--muted);margin:var(--s4) 0 var(--s1)}
 input,select{width:100%;background:var(--surface);border:1px solid var(--rule);

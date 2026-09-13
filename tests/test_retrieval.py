@@ -128,16 +128,30 @@ def client() -> TestClient:
     return TestClient(web.app)
 
 
-def test_the_landing_screen_is_retrieval(client):
+def test_the_landing_screen_invites_a_question(client):
+    """It opens as a question, not a dashboard — the product is asking and getting
+    an answer."""
     body = client.get("/").text
-    assert "Retrieval" in body
-    assert "records held" in body, "the idle screen must state what is connected"
+    assert "What would you like to know" in body
+    assert "Connected" in body, "the idle screen must state what is connected"
 
 
-def test_an_answer_shows_aliases_and_coverage(client):
+def test_an_answer_reads_as_a_briefing_with_its_receipts(client):
+    """Organised by meaning, not by which app it came from — with every line's source
+    one click away rather than printed alongside it."""
+    body = client.get("/?q=Ankusha+Rao").text
+    assert "On record" in body, "the answer is not organised by meaning"
+    assert 'details class="cite"' in body, "citations are not reachable"
+    assert "Where this came from" in body, "coverage is not shown"
+
+
+def test_a_colleague_query_surfaces_the_names_they_are_filed_under(client):
+    """Aliases belong to staff, not patients — a patient has one record, a colleague
+    has a different handle in every system."""
     body = client.get("/?q=Priya+Patel").text
-    assert "Known as" in body, "the alias panel is the clearest proof of unification"
-    assert "Coverage" in body
+    assert "known as" in body.lower(), (
+        "resolved identities are not surfaced — the clearest proof of unification"
+    )
 
 
 def test_a_zero_hit_query_proves_the_guarantee_rather_than_saying_no_results(client):

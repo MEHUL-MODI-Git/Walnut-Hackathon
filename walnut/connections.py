@@ -26,7 +26,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from .adapters.fixture import FixtureAdapter
+from .adapters.fixture import CLINIC_APPS, FixtureAdapter
 from .contract import Adapter, SourceProfile, utcnow
 
 __all__ = [
@@ -194,8 +194,11 @@ class ConnectionManager:
     def __init__(self, *, autoload_env: bool = True) -> None:
         self._connections = {app: Connection(app=app) for app in APP_SPECS}
         self._live: dict[str, Adapter] = {}
+        # Only the apps the demo company actually runs get seeded data. The others
+        # remain connectable — they are real adapters — they just hold nothing until
+        # someone points them at an account.
         self._fixtures: dict[str, Adapter] = {
-            app: FixtureAdapter(app) for app in APP_SPECS
+            app: FixtureAdapter(app) for app in APP_SPECS if app in CLINIC_APPS
         }
         if autoload_env:
             self.load_from_environment()
@@ -216,11 +219,15 @@ class ConnectionManager:
         This is the method that makes demo mode a first-class path rather than a
         fallback. The agent is handed five working adapters either way.
         """
-        return {
-            app: (self._live[app] if conn.is_live and app in self._live
-                  else self._fixtures[app])
-            for app, conn in self._connections.items()
-        }
+        out: dict[str, Adapter] = {}
+        for app, conn in self._connections.items():
+            if conn.is_live and app in self._live:
+                out[app] = self._live[app]
+            elif app in self._fixtures:
+                out[app] = self._fixtures[app]
+            # An app with neither a credential nor seeded data simply is not a source
+            # yet. It stays visible on Connectors so it can be connected.
+        return out
 
     def default_scopes(self) -> dict[str, str | None]:
         """The scope each connected app should be read at.

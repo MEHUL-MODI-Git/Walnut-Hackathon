@@ -34,6 +34,7 @@ from ..intent import parse_intent
 from ..clinical_sources import register_clinical_sources
 from ..internal_systems import register_internal_systems
 from ..plugins import SourceRegistry
+from ..briefing import build_briefing
 from ..retrieval import assemble, link_by_subject
 from . import design
 from . import views
@@ -173,16 +174,21 @@ def back(path: str) -> RedirectResponse:
 
 
 @app.get("/", response_class=HTMLResponse)
-def retrieval(q: str = "", mode: str = "source") -> HTMLResponse:
+def retrieval(q: str = "") -> HTMLResponse:
     """The hero: everything the company knows about one subject."""
     from .screens.retrieval import page_retrieval
 
     agent = state.ensure()
     found = assemble(state.brain, q, identities=agent.identities) if q.strip() else None
+    brief = (
+        build_briefing(found, detect_contradictions(state.brain))
+        if found is not None and found.total
+        else None
+    )
     return html(
-        page_retrieval(q, found, unsearchable=state.unsearchable(),
-                       held=state.held(), mode=mode),
-        "Retrieval", "retrieval",
+        page_retrieval(q, found, briefing=brief, unsearchable=state.unsearchable(),
+                       held=state.held()),
+        "Ask", "retrieval",
     )
 
 
