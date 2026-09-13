@@ -1,4 +1,4 @@
-.PHONY: help install test demo web brief check clean dispensary stack
+.PHONY: help install test demo web brief check clean dispensary stack smoke
 PY := ./.venv/bin/python
 
 help:
@@ -7,6 +7,7 @@ help:
 	@echo "make demo      the three-act CLI demo"
 	@echo "make web       serve the console on :8000"
 	@echo "make stack     console + the mock internal hospital system"
+	@echo "make smoke     test live credentials once they are in .env"
 	@echo "make brief     generate BRIEF.md from a live run"
 	@echo "make check     what to run before recording the demo"
 
@@ -36,6 +37,12 @@ stack:
 
 brief:
 	$(PY) -m walnut.brief > BRIEF.md && echo "wrote BRIEF.md"
+
+# Run the moment real tokens land in .env. Read-only: probes each credential, fetches
+# real records, checks hash stability, runs conformance, and verifies action targets
+# resolve — printing that app's known gotcha for whatever fails.
+smoke:
+	$(PY) scripts/smoke.py
 
 # Everything that must be green before the demo is recorded.
 check: test
