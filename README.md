@@ -7,7 +7,7 @@ Built for the Multi-App AI Agent Hackathon · Lemma × Comma Capital
 
 | | |
 |---|---|
-| 🎥 **Demo video (2 min)** | **https://youtu.be/YiiNclHpecY** |
+| 🎥 **Demo video (2:18)** | **https://youtu.be/YiiNclHpecY** |
 | 💻 **Run it** | `make install && make stack` — no credentials needed |
 | ✅ **Tests** | 395, passing on two graph backends |
 
@@ -165,8 +165,10 @@ Walnut hardcodes none of that. Nothing about a URL tells you whether it stops a 
 starts one — only the people who run the system know that, so they declare it, and
 Walnut enforces it.
 
-**Total apps written to in the demo: six** — Slack, Linear, Notion, Email, the clinic's
-SQL database, and the custom pharmacy service.
+**Apps the agent writes to in the demo: five** — Slack, Linear, Notion and the custom
+pharmacy service directly, plus an email drafted and held for a person to send. The
+clinic's own database is read, never written: the EHR connector declares one write
+(`annotate`, to a companion table) and the plan does not use it.
 
 ---
 
@@ -176,11 +178,19 @@ Works with **zero credentials**. Nothing is called over the internet unless you 
 yourself.
 
 ```bash
-git clone <this repo>
-cd ArgaLabs
+git clone https://github.com/MEHUL-MODI-Git/Walnut-Hackathon.git
+cd Walnut-Hackathon
 
-make install          # creates .venv and installs
+make install          # creates .venv with uv and installs
 make stack            # console on :8000, mock pharmacy service on :8900
+```
+
+`make install` uses [uv](https://docs.astral.sh/uv/) (`brew install uv`, or
+`pip install uv`). Without it, the same thing by hand:
+
+```bash
+python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev,web]"
+make stack
 ```
 
 Open **http://localhost:8000** and type `Ankusha Rao`.
@@ -215,7 +225,8 @@ share pages with your integration** — the token is valid, it just cannot see a
 
 ### Requirements
 
-Python 3.12. No database to set up, no Docker, no build step, no API keys.
+Python 3.12 and `uv` (or plain `pip`, as above). No database to set up, no Docker, no
+build step, no API keys. `ffmpeg` is needed only to rebuild the demo video.
 
 ---
 
