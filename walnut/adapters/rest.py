@@ -112,6 +112,19 @@ def _dig(obj: Any, path: str) -> Any:
     return current
 
 
+def _unwrap_record(payload: dict[str, Any]) -> dict[str, Any]:
+    """A single-record response, whether it arrives bare or wrapped in an envelope.
+
+    APIs disagree about this and the adapter should not care: `{"id": ...}` and
+    `{"data": {"id": ...}}` are the same record.
+    """
+    for key in ("data", "record", "result", "item"):
+        inner = payload.get(key)
+        if isinstance(inner, dict):
+            return inner
+    return payload
+
+
 def _validate_operations(
     name: str, operations: dict[str, dict[str, Any]] | None
 ) -> dict[str, dict[str, Any]]:
@@ -596,6 +609,26 @@ class RESTAdapter:
         path = config["path"]
         raw_id = action.target.get("id")
 
+        # Read the record before changing it, when the source told us how to.
+        #
+        # `place_hold` flips a prescription's dispense status, so the receipt has to
+        # carry what that status WAS — otherwise undo has nothing to restore and is
+        # guessing. The conformance suite catches exactly this, and caught it here:
+        # the first version of this method recorded `prior_state=None` on every
+        # declared write, on the reasoning that a generic adapter cannot know what to
+        # read. It can, whenever `item_path` is configured, which is the same
+        # configuration `resolve()` already relies on.
+        prior: dict[str, Any] | None = None
+        if raw_id is not None and self._item_path:
+            try:
+                before = self._request(
+                    "GET", self._render_path(self._item_path,
+                                             self._safe_id_segment(raw_id)))
+                if isinstance(before, dict):
+                    prior = _unwrap_record(before)
+            except Exception:  # noqa: BLE001 - a missing prior read must not block
+                prior = None   # the write; it is recorded as absent, not invented
+
         if "{id}" in path:
             if raw_id is None:
                 raise ValueError(
@@ -619,10 +652,9 @@ class RESTAdapter:
             action_id=f"{self.name}:{action.operation}:{raw_id or created or '-'}",
             action=action,
             result=result,
-            # This adapter cannot read the record's prior value without a second
-            # round trip it was never configured for, so it does not claim to have
-            # one. An invented prior_state is worse than none: undo would restore it.
-            prior_state=None,
+            # Absent rather than invented when the source gave us no way to read it.
+            # A made-up prior_state is worse than none: undo would restore the guess.
+            prior_state=prior,
         )
 
     def _undo_declared(self, receipt: ActionReceipt) -> ActionReceipt:

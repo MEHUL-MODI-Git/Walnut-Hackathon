@@ -954,6 +954,28 @@ class TestDirectionOfRisk:
         ), "the dose went back out while the gate was still waiting"
         assert gate.pending, "undo bypassed the gate rather than queueing for it"
 
+    def test_a_declared_write_captures_what_it_overwrote(
+        self, stack, client: TestClient
+    ) -> None:
+        """A hold flips the prescription's dispense status, so the receipt has to carry
+        what that status WAS. The first version of `_act_declared` recorded
+        `prior_state=None` on every declared write, reasoning that a generic adapter
+        cannot know what to read — it can, whenever the source configured `item_path`,
+        which is the same configuration `resolve()` already depends on.
+
+        Undo happened to work anyway, because this particular service remembers the
+        prior status itself. That is the service being careful, not Walnut, and it is
+        not something Walnut may assume of the next internal system someone connects.
+        """
+        adapter, _brain, gate, executor = stack
+        before = client.get("/api/prescriptions/rx-0002").json()["dispense_status"]
+
+        receipt = executor.execute(_hold_action(adapter, "rx-0002"))
+
+        assert not isinstance(receipt, Refusal)
+        assert receipt.prior_state is not None, "the hold recorded nothing to restore"
+        assert receipt.prior_state["dispense_status"] == before
+
     def test_undo_still_needs_no_human_when_the_reversal_is_harmless(
         self, stack, client: TestClient
     ) -> None:
