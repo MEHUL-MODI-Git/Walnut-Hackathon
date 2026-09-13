@@ -146,6 +146,14 @@ sources as you care to add — and a custom source is not second-class. It appea
 same search results, contributes to the same coverage table, and can be acted on like
 any other app.
 
+**Any external tool, app or MCP server can be connected the same way.** If it speaks
+HTTP and JSON, the REST route needs a short config and nothing else. If it doesn't — an
+MCP server over stdio, a proprietary SDK, a file share — a Python plugin of six methods
+(`probe`, `fetch`, `resolve`, `capabilities`, `act`, `undo`) wraps it and it becomes a
+source and an action target like any other. There is no MCP-specific adapter in this
+repo; the point is that one isn't needed, because the contract is the same for every
+kind of system.
+
 **A worked example is in the repo.** `services/dispensary/` is a real FastAPI service
 that behaves like a hospital's internal pharmacy system. Walnut connects to it with its
 **unmodified** REST adapter, through a config file — no adapter code was written for it.
