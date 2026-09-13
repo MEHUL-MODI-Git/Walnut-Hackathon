@@ -154,24 +154,60 @@ source and an action target like any other. There is no MCP-specific adapter in 
 repo; the point is that one isn't needed, because the contract is the same for every
 kind of system.
 
-**A worked example is in the repo.** `services/dispensary/` is a real FastAPI service
-that behaves like a hospital's internal pharmacy system. Walnut connects to it with its
-**unmodified** REST adapter, through a config file — no adapter code was written for it.
-It passes all 17 conformance checks over a real HTTP socket.
+### How we connected a custom-built system: the pharmacy
 
-That service also declares its own write operations, and their risk level, in its own
-config:
+To prove the custom route against something real rather than a fixture, we built a
+small internal hospital system and connected it the way a customer would.
+
+**What it is.** `services/dispensary/` is a stand-alone FastAPI service — a mock of a
+hospital pharmacy's dispensing system, the kind of thing a hospital IT team wrote years
+ago and no vendor ships an integration for. It has its own database of patients,
+prescriptions and today's dispense queue, its own JSON API (`/api/prescriptions`,
+`/api/dispense-queue`, `/api/holds`, `/api/annotations`) and its own plain web page at
+`http://localhost:8900/` that looks nothing like Walnut. It runs as a separate process
+on port 8900.
+
+**How it was connected.** No adapter code. One configuration block
+(`walnut/internal_systems.py`) tells Walnut's generic REST adapter the shape of the API:
 
 ```python
-"operations": {
-    "place_hold":   {"method": "POST",   "path": "/api/holds",      "tier": "INTERNAL"},
-    "release_hold": {"method": "DELETE", "path": "/api/holds/{id}", "tier": "GATED"},
+{
+    "kind": "rest",
+    "name": "dispensary",
+    "base_url": "http://localhost:8900",
+    "list_path": "/api/prescriptions",          # where the records are
+    "item_path": "/api/prescriptions/{id}",     # how to fetch one again
+    "records_key": "data", "id_field": "id",
+    "text_fields": ["patient_mrn", "patient_name", "drug", "dose",
+                    "instructions", "status", "dispense_status"],
+    "author_field": "prescriber", "timestamp_field": "prescribed_at",
+    "uri_field": "url",
+    "annotate_path": "/api/annotations?prescription_id={id}",
+    "operations": {                              # what Walnut may do, and how risky
+        "place_hold":   {"method": "POST",   "path": "/api/holds",      "tier": "INTERNAL",
+                         "undo": {"method": "DELETE", "path": "/api/holds/{id}"}},
+        "release_hold": {"method": "DELETE", "path": "/api/holds/{id}", "tier": "GATED"},
+    },
 }
 ```
 
-Walnut hardcodes none of that. Nothing about a URL tells you whether it stops a dose or
-starts one — only the people who run the system know that, so they declare it, and
-Walnut enforces it.
+**What happened when it was connected.** Walnut ran its 17-check conformance suite
+against the live service over a real HTTP socket — all 17 pass — and only then let it
+into the brain. From that point the pharmacy is an ordinary source: its prescriptions
+show up when you ask about a patient, it appears in the coverage table, and the agent
+can act on it. In the demo the agent **places a hold on the queued co-amoxiclav**
+because the chart and the nurse disagree about an allergy, and the video cuts to the
+pharmacy's own screen where the row now reads *HELD* with Walnut's reason beside it.
+
+**The part that matters.** The pharmacy declares its own write operations and their risk
+level. `place_hold` runs on its own because stopping a dose fails safe; `release_hold`
+needs a person because putting a dose back into someone's hand does not. Walnut
+hardcodes none of that — nothing about a URL says whether it stops a dose or starts one.
+Only the people who run the system know, so they declare it and Walnut enforces it,
+including through undo: reversing a hold asks for the same approval as releasing one.
+
+If the service is down, Walnut does not pretend. The coverage table shows
+`dispensary · not searched` with the reason, and the rest of the answer still comes back.
 
 **Apps the agent writes to in the demo: five** — Slack, Linear, Notion and the custom
 pharmacy service directly, plus an email drafted and held for a person to send. The
