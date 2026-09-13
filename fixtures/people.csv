@@ -1,11 +1,11 @@
 person_id,full_name,email,slack_handle,github_login,linear_name,notion_name,role
-p01,Sarah Kim,sarah.kim@meridianhealth.dev,sarah,sarah-k,Sarah Kim,S. Kim,Senior Backend Engineer
-p02,Marcus Chen,marcus.chen@meridianhealth.dev,mchen,marcus-chen,Marcus Chen,M. Chen,Engineering Lead
-p03,Priya Patel,priya.patel@meridianhealth.dev,priya,,Priya Patel,Priya P.,Support Team Lead
-p04,Jordan Alvarez,jordan.alvarez@meridianhealth.dev,jalvarez,,Jordan Alvarez,J. Alvarez,Account Manager
-p05,David Osei,david.osei@meridianhealth.dev,dosei,d-osei,David Osei,David O.,Backend Engineer
-p06,Emily Zhao,emily.zhao@meridianhealth.dev,emilyz,,Emily Zhao,E. Zhao,Product Manager
-p07,Tom Becker,tom@meridianhealth.dev,tomb,tbecker,,Tom B.,Co-Founder & CEO
-p08,Lena Fischer,lena.fischer@meridianhealth.dev,lenaf,lena-fischer,Lena Fischer,Lena F.,Frontend Engineer
-p09,Nora Bennett,nora.bennett@meridianhealth.dev,norab,,Nora Bennett,Nora B.,Clinical Safety Officer
-p10,Amir Hassan,amir.hassan@meridianhealth.dev,amirh,amir-hassan,Amir Hassan,Amir H.,Sales Engineer
+p01,Priya Patel,priya.patel@meridianhealth.example,priya,priya-p,Priya Patel,P. Patel,Registered Nurse -- Riverside Site
+p02,Helen Okafor,helen.okafor@meridianhealth.example,helen.o,,Helen Okafor,H. Okafor,General Practitioner (GP) -- Riverside Site
+p03,Michael Tran,michael.tran@meridianhealth.example,mtran,,Michael Tran,M. Tran,General Practitioner (GP) -- Elmwood Site
+p04,Fatima Sheikh,fatima.sheikh@meridianhealth.example,fatima,,Fatima Sheikh,F. Sheikh,Clinical Pharmacist
+p05,Grace Whitfield,grace.whitfield@meridianhealth.example,gracew,,Grace Whitfield,Grace W.,Practice Manager
+p06,Noah Bennett,noah.bennett@meridianhealth.example,noahb,,Noah Bennett,N. Bennett,Clinical Safety Lead
+p07,Ben Carter,ben.carter@meridianhealth.example,bcarter,ben-carter,Ben Carter,B. Carter,IT Systems Administrator
+p08,Layla Haddad,layla.haddad@meridianhealth.example,laylah,layla-h,Layla Haddad,Layla H.,IT & Operations Engineer
+p09,Tom Reilly,tom.reilly@meridianhealth.example,treilly,,Tom Reilly,T. Reilly,Facilities & Operations Coordinator
+p10,Sandra Kim,sandra.kim@meridianhealth.example,skim,,Sandra Kim,Sandra K.,Front Desk & Scheduling Lead

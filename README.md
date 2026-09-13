@@ -1,268 +1,229 @@
 # Walnut
 
-**A company brain that reads five fragmented systems, and an agent that acts across
-them only on cited evidence — and refuses when it can't.**
+**A company brain. Every system a company runs, in one place — so nothing is ever lost,
+no matter how scattered it was. Then an agent that can act on it.**
 
-Built for the Multi-App AI Agent Hackathon (Lemma × Comma Capital).
+Multi-App AI Agent Hackathon · Lemma × Comma Capital
 
-> *"Build one useful, multi-step AI agent. Connect it to at least three external apps.
-> Show how you know it works."*
+> 🎥 **Demo video:** _paste link here before submitting_
+> 💻 **Repository:** this repo. `make stack` runs the whole thing.
 
 ---
 
 ## The problem
 
-Every company's truth is smeared across Slack, Linear, GitHub, Notion and email. No
-human reads all five at once, so they drift apart. Then an agent is pointed at them,
-and it does the thing agents do when they cannot tell what is true: it acts
-confidently, produces the wrong result, throws no error, and reports success.
+Every company holds an enormous amount of useful information and can't get at any of it.
+It's spread across a dozen tools that don't talk to each other, so answering even a
+simple question means opening five tabs, and real analysis mostly just doesn't happen.
 
-Walnut is built around the opposite assumption — that the interesting question is not
-*can the agent act*, but *can the agent tell when it must not*.
+Worse, the most important fact is often in the one place nobody thinks to look. A nurse
+messages a colleague that a patient reacted badly to a drug as a child. It never reaches
+the chart. The chart still says *"Allergies: none recorded."* The pharmacy still has the
+antibiotic queued.
 
-## Three guarantees, enforced by constructors rather than prompts
+Nothing was hidden. Everything was written down. It was just written down **somewhere
+else**.
+
+## What Walnut does
+
+Connects all of it into one graph of cited facts, so you can ask about any person,
+patient, customer or record and get **everything, from everywhere, with its source
+attached**. Then it acts back into those systems — under governance, because it's acting
+on a company's real data.
+
+```
+> Ankusha Rao
+
+  12 records · 5 of 8 sources · resolved through 4 identities
+
+  ehr      MR-4417 · CKD stage 2 · co-amoxiclav 625mg TDS · Allergies: None recorded
+  slack    "she came out in a rash all over as a kid after being given amoxicillin.
+            that is NOT showing anywhere in her chart" — 12 days ago
+  notion   visit note, filed · referral protocol
+  email    specialist referral thread
+  labs     eGFR 78 → 71 → 64 → 58  (latest flagged Low)
+  github   searched · no match
+
+  ⚠ CONTRADICTION · MR-4417
+    ehr says absent — slack says present
+```
+
+## The apps we work with
+
+**Five built-in connectors**, each read *and* write:
+
+| App | Contributes | Can write |
+|---|---|---|
+| **Slack** | care-team coordination, the informal channel | reply in thread, post, react, DM |
+| **Linear** | operations task board | create issue, comment, set state, assign, label |
+| **GitHub** | internal tooling | comment, create issue, label, commit status |
+| **Notion** | protocols, visit notes, the written record | set property, append block, create page |
+| **Email** | correspondence that crosses the org boundary | draft, flag, move, **send (gated)** |
+
+**Plus the customer's own systems** — because the sources that matter most to a company
+never ship as a first-party integration. Three ways in, no forked code:
+
+| Route | Example in this repo |
+|---|---|
+| **SQL** — point at a database with a query | `ehr` and `labs` — the clinic's record system |
+| **REST** — describe an internal API's shape | `dispensary` — a live service in `services/dispensary/` |
+| **Python** — one file implementing six methods | `walnut_plugins/example_csv_source.py` |
+
+`services/dispensary/` is a real FastAPI service standing in for a customer's internal
+system. Walnut's **unmodified** REST adapter passes full conformance against it over
+real HTTP. See [ADAPTERS.md](ADAPTERS.md).
+
+## How we know it works
+
+The hackathon asks you to show this, so here is exactly what is checked and how.
+
+```bash
+make check     # tests green · brief all-PASS · demo clean · working tree clean
+```
+
+### 1. A behavioural conformance suite every connector must pass
+
+`walnut/conformance.py` — 12 checks that a type signature cannot catch. Real content
+hashes, followable URIs, unique ids, stable hashes across re-fetches, `resolve()`
+returning `None` for a missing record rather than inventing one, prior state captured
+before a write, external operations gated.
+
+**Every adapter is held to it, including custom ones.** A custom source that fails is
+shown on the Connectors screen and **is not wired in** — it contributes no evidence until
+it conforms. It caught two real bugs during this build: the Slack adapter double-counting
+thread replies, and the `labs` source keying evidence on a non-unique column, which would
+have silently collapsed a six-month lab trend into a single record.
+
+### 2. A self-generating reliability brief
+
+```bash
+python -m walnut.brief > BRIEF.md
+```
+
+Ten checks, each read from a **live object** — it executes the system and reports what
+happened, rather than restating claims from memory. It reports its own failures, and
+`make check` refuses to pass if any check fails, so you cannot record a demo against a
+broken build.
+
+### 3. Coverage — the part that makes "nothing is lost" checkable
+
+A search that quietly read four of six sources looks identical to one that read all six.
+So every result carries **every source**, in one of three states:
+
+| | |
+|---|---|
+| **found** | it had something |
+| **nothing** | *searched · no match* — a quiet neutral, **never red, never hidden**. A searched-and-empty source is the promise working |
+| **not searched** | the only failure state — with the reason and a link to fix it |
+
+A zero-hit query doesn't say "0 results". It shows the full table and says *"Every source
+was searched. None of them hold anything about X."* A negative that proves the guarantee.
+
+### 4. A control condition
+
+`walnut/baseline.py` is this same codebase with the governance layer removed — same
+adapters, same corpus, same task. It executes far more actions, including ones taken
+verbatim from a document carrying injected instructions, and reports every one as a
+success. A test asserts the control is *not* secretly governed, because a flattering
+control is worse than none.
+
+### 5. 328 tests, no network, no credentials
+
+Green on both graph backends — `WALNUT_GRAPH=simple` runs a dependency-free fallback, so
+a broken graph library costs the provenance features, not the product.
+
+## Governance — why it's safe to point at real systems
+
+Actions are tiered by the **direction of risk**, not by the kind of write:
+
+| | |
+|---|---|
+| **auto** | place a hold on a queued prescription — *stopping a dose fails safe* |
+| **auto** | post to the care team · create a task · append a cited note · annotate the record |
+| **GATED** | email the referring clinician · release a hold — *these make things less safe* |
+| **FORBIDDEN** | write the allergy field · alter a prescription — never, under any approval |
+
+**The agent can stop a dose going out. It cannot start one.**
+
+Three guarantees are enforced by constructors, not by prompts:
 
 ```python
->>> SourcePointer(app="slack", resource_uri="https://…", content_hash="")
-ValueError: content_hash must be a sha256 hex digest, got ''.
-           Empty or placeholder hashes make citation verification silently vacuous.
-
 >>> Action(app="linear", operation="create_issue", justified_by=())
 ValueError: Action linear.create_issue has no justifying evidence. Every action must
-           cite the evidence that motivated it — this is the rule the whole system
-           exists to enforce.
+           cite the evidence that motivated it.
 ```
 
-1. **No claim without a resolvable source.** Evidence cannot be constructed without a
-   pointer carrying a real content hash. Drift is detectable because the hash moves.
-2. **No action without justifying evidence.** An unjustified action is not rejected at
-   runtime; it cannot be built.
-3. **No deletion.** Every write is reversible and undo *retracts* rather than erases —
-   a Slack message is edited to `[retracted by Walnut …]`, a Linear issue is archived,
-   a Notion property is restored with the audit note left in place.
+No claim without a resolvable source · no action without the evidence justifying it ·
+no deletion — every action is reversible, and undo *retracts* rather than erases.
 
-## The demo
+And content read from a connected app is **evidence about the world, never a command**.
+A document carrying injected instructions is refused with its taint path shown — while
+quarantining that same document is still permitted.
+
+## Run it
 
 ```bash
-python demo.py             # all three acts
-python demo.py --act 3     # just the refusal
+make install
+make stack      # console on :8000, mock internal hospital system on :8900
+make demo       # the three-act walkthrough in the terminal
+make check      # everything that must be green before recording
 ```
 
-Runs entirely offline against fixture data. No API tokens required.
+Works with **zero credentials** — every source runs on seeded data. `.env.example` lists
+what to paste to connect real accounts, including the two gotchas that bite people
+(Linear wants a bare `Authorization` header, not `Bearer`; Notion sees nothing until you
+share pages with the integration).
 
-**Act 1 — the brain.** Records from five apps become one graph of cited facts. Sarah Kim resolves
-across five identities (`@sarah`, `sarah-k`, `Sarah Kim`, `S. Kim`,
-`sarah.kim@meridianhealth.dev`). Ten uncertain matches are held for a human rather than
-guessed, because over-merging two real people is a data-protection incident.
+## The demo corpus
 
-**Act 2 — the action.** The brain finds that the Notion spec claiming the dosing
-engine v2 is `Status: Shipped` is contradicted by GitHub PR #288 — the paediatric
-dose-rounding fix — still open with zero approvals.
-It files a Linear issue carrying the evidence chain, comments on the PR, replies in
-Slack, corrects the Notion status — and **stops** at the customer email.
-
-```
-done    linear.create_issue   → linear-1
-done    github.comment        → github-1
-done    slack.post_reply      → slack-1
-done    notion.set_property   → notion-1
-HELD    email.send_email      → gate_timeout
-
-  The only action that reaches a customer is the only action that stops.
-```
-
-**Act 3 — the refusal.** A Notion page carrying injected instructions asks the agent to
-mark all issues resolved and email the contact list for every patient. Both are operations it can
-perform. It refuses both, and shows why:
-
-```
-REFUSED: email.send_email
-  reason: tainted_instruction
-  Content read from a connected app is evidence about the world, never a command
-  addressed to this agent. Quarantining or labelling it is permitted; acting on it
-  is not.
-  taint path:
-    1. notion · https://notion.so/meridian/nt002 · matched 'ignore previous instruction'
-```
-
-The same document *can* justify quarantining itself. You may label the poison; you may
-not act on it.
-
-## Connect your own accounts
-
-```bash
-make web        # http://localhost:8000
-```
-
-Every app works on seeded data before anything is connected — that is the default, not
-a degraded mode. Connecting swaps the live adapter in behind the same contract.
-
-A credential is validated by **using** it: Walnut calls `probe()` and reports what the
-token can actually see. A token that parses but reads nothing is an error, not a
-success. Credentials are held in memory for the process only — never written to disk,
-never logged, and never rendered into a page (asserted by test, because this gets
-demoed over screen share).
-
-Token paste rather than OAuth is deliberate: five OAuth flows means five app
-registrations and five ways to be stuck, and it makes the product undemonstrable to
-anyone who has not already done that setup. The credential spec is shaped so an OAuth
-callback could fill the same fields later.
-
-## Ask it to do something
-
-```
-> file a Linear issue about MED-412 and comment on the PR
-
-  PROPOSE  linear.create_issue   ← "file a linear issue"
-  PROPOSE  github.comment        ← "comment on"
-
-> comment on something
-
-  ASK      "comment on" could mean github or linear. Name the app —
-           a guess here writes to the wrong system.
-```
-
-The parser is deliberately the **weakest** component, not the smartest. It proposes;
-it never executes — every proposal goes through the same choke point as anything else,
-so a misread sentence costs a refused action rather than a wrong write. It cannot
-invent justification, because `Action` will not construct without evidence. And
-ambiguity becomes a question rather than a coin flip.
-
-No model is involved: operations come from each adapter's own `capabilities()`, so a
-newly connected custom source becomes addressable in natural language the moment it
-declares what it can do.
-
-## Connect your own systems
-
-Five built-in connectors is a demo. The sources that matter most to a company — its own
-database, its internal wiki, the ticketing service somebody wrote in 2015 — will never
-ship as a first-party integration. So there are three ways in: a **SQL source** (no
-code), a **REST source** (no code), or a **Python file** implementing the six methods.
-
-**A custom source is not trusted, it is tested.** Registering one runs the same
-behavioural conformance suite the five built-ins pass, and reports exactly which
-guarantees hold. A source that returns uncited evidence, or invents records instead of
-returning nothing, is reported as failing and is **not wired in** — it stays visible so
-it can be fixed, but it contributes no evidence until it conforms.
-
-See [ADAPTERS.md](ADAPTERS.md). `walnut_plugins/example_csv_source.py` is a complete
-worked example: a folder of text files as a fully conforming source.
-
-## The control condition
-
-Every claim here is comparative, so there is something to compare against:
-`walnut/baseline.py` is this same codebase with the governance layer removed — same
-adapters, same brain, same corpus. On the seeded data it executes far more actions,
-including ones taken verbatim from the page carrying injected instructions, and reports
-every one as a success. A test asserts the control is not secretly governed, because a
-flattering control is worse than none.
-
-## Architecture
-
-```
-Slack   Linear   GitHub   Notion   Email          five apps, read AND write
-  └───────┴────────┴────────┴────────┘
-         Adapter contract — six methods
-   probe · fetch · resolve │ capabilities · act · undo
-                    │
-              Brain facade  ← swap seam
-                    │
-      Semantica: graph, PROV-O provenance, decision chains,
-                 temporal state_at(), retraction tombstones
-                    │
-   ActionExecutor — the ONE choke point for every write
-   unknown? forbidden? justified? tainted? stale? gated?
-                    │
-           Lemma tracing throughout
-```
-
-**Why the checks are ordered that way.** Taint is checked *before* the human gate. If
-injected content could reach an approval prompt, the attack becomes social engineering
-with extra steps — a plausible request rubber-stamped by a tired reviewer at 3am. The
-agent refuses rather than delegating the decision.
-
-**The agent loop is model-optional.** Ingestion, identity resolution, contradiction
-detection and action proposal are all deterministic Python. A language model can phrase
-the customer reply, but is never in the path of a decision about what is true or what
-may be written. The run is reproducible.
-
-## Reliability
-
-```bash
-pytest -q          # all green: no network, no credentials
-```
-
-- **Every adapter passes one behavioural conformance suite** (`walnut/conformance.py`).
-  A `Protocol` constrains signatures only; a structurally valid adapter can still
-  return uncited evidence or mislabel a customer-facing write as internal. The suite is
-  what "the adapter is done" actually means — and it caught a real duplicate-evidence
-  bug in the Slack adapter during the build.
-- **Tests run with no network and no credentials**, so they are also the regression
-  suite during the hackathon window.
-- **The graph dependency is genuinely swappable, and that is tested rather than
-  asserted.** `walnut/graphstore.py` carries a dependency-free `SimpleGraph`, and the
-  entire suite runs green under `WALNUT_GRAPH=simple`. A broken Semantica import at 3am
-  costs the provenance features, not the demo. (It is also 4x faster, which is its own
-  finding about how load-bearing the dependency really was.)
-- **`FixtureAdapter` is held to the same suite as the live adapters**, which makes it a
-  diagnostic instrument as well as an offline fallback: if it passes and a live adapter
-  does not, the bug is in the live adapter.
-
-### Bugs the build actually found
-
-Recorded because "show how you know it works" should include how you know it *didn't*:
-
-| Found by | Bug |
-|---|---|
-| Conformance suite | Slack adapter double-counted thread replies |
-| First live demo run | Semantica silently swallowed every recorded decision — its `metadata` is splatted as kwargs and `recorded_at` collided with its own parameter, raising inside a bare `except` |
-| First live demo run | Contradiction detector reported **303** conflicts on an 88-record corpus: unversioned feature words matched as shared referents, and the cartesian product was emitted undeduplicated. Now 18, deduplicated per subject and app-pair |
-| Demo output review | Dedup kept the *newest* claim per pair rather than the most *authoritative*, so an all-hands agenda outranked the spec page. Primacy now beats recency |
-| Demo output review | `regression` matched "regression pass", reading a completed QA issue as broken |
-| Demo output review | `regression` matched "regression pass", reading a completed QA issue as broken |
-| Re-reading the code | **Approval could never let an action through.** The gate keyed requests by an incrementing counter, so the action re-submitted after a human approved it got a fresh key, found no answer, and was refused again. The console's approve button appeared to work and changed nothing |
-| Re-reading the code | Plan ids derived from Python's `hash()`, which is randomised per process, so the same contradiction got a different id every run |
-| Swapping the seed corpus | The feature extractor held a **hard-coded vocabulary** of one corpus's product names. Changing domain made it silently find nothing — no error, no output, a detector that still looked like it was working |
-| Swapping the seed corpus | Subject keys normalise "dosing engine v2" to `dosingv2`, but the authority check searched for that joined string in text reading "dosing **engine** v2" — so almost every record was misjudged as a passing mention |
-| Console tests | A pasted credential could be echoed back into a rendered page |
-| **Adversarial review** | **One approval became standing authority.** Fixing the counter-keyed gate by storing the answer permanently traded one defect for a worse one: the single write that reaches a customer re-executed forever on one click, with no pending row and nothing in the console to show it. Approvals are now single-use |
-| Adversarial review | The taint rule exempted tier TRIVIAL — which includes `email.flag`, applying its payload verbatim as an IMAP flag. A poisoned document could mark a real customer's message `\Deleted`. Replaced with an explicit quarantine allow-list |
-| Adversarial review | An adapter exception escaped the "one audited choke point" — no receipt, no refusal, nothing in the ledger, and the external write may already have happened. Now a typed `adapter_failure` refusal that says so |
-| Adversarial review | The classifier read free prose and ignored the structured `state:` field, so a **Backlog** issue whose description said "before calling it resolved" was ranked the top contradiction — a confident wrong answer with a citation attached |
-| Adversarial review | `/act` addressed conflicts by subject, but six conflicts share one subject: the human read conflict B and the system wrote conflict A's evidence into four external systems |
-| Adversarial review | `MatchBand.LIKELY` was unreachable — a guessed identity merge and a verified one both read `certain` |
-| Adversarial review | The grounding wall exempted every single-digit numeral. "3 patients were harmed" rendered as a cited fact; "12 outages" was correctly refused, so the check looked like it worked |
-| Adversarial review | `act_captures_prior_state` never inspected `prior_state`, and `undo_restores` never checked restoration |
-| Adversarial review | GitHub's repo and Notion's database were collected in the connect form, validated, then dropped — ingestion silently read whichever repo the token saw first |
-| **Pre-flight for live wiring** | **Every plan aimed at the wrong coordinates.** The planner emitted `{"id": …}` for all five apps while the live adapters read `channel`/`ts`, `owner`/`repo`/`number`, `page_id`, `issue_id`, `folder`/`message_id`. It worked perfectly against fixtures, which do read `id`. The first live connection would have raised `KeyError` on step two of a five-app plan — after step one had already written to a real system |
-| Pre-flight for live wiring | The fix then silently deleted two steps from the demo plan, because a fixture locator carries none of the live coordinates. Fallback now distinguishes an id-addressed locator from a live one merely missing a key |
+**Meridian Health**, a fictional nine-site clinic group. ~113 facts across seven sources,
+ten staff each filed under a different handle per system, one planted clinical
+contradiction, and one adversarial document. All synthetic, all `.example` domains, no
+real people or patients. See [fixtures/README.md](fixtures/README.md).
 
 ## Layout
 
 ```
 walnut/
-  contract.py        six-method adapter contract; the two enforced rules
-  conformance.py     the behavioural suite every adapter must pass
-  brain.py           Semantica facade — the swap seam
+  retrieval.py       assemble everything about a subject + source coverage
+  brain.py           the graph of cited facts (swappable backend)
   identity.py        cross-app identity resolution, three match bands
   contradiction.py   deterministic conflict detection
-  render.py          the grounding wall
-  agent.py           ingest → investigate → propose → execute
-  observability.py   Lemma tracing, no-ops without credentials
-  actions/
-    governance.py    refusal types, taint detection, human gates
-    executor.py      the one write choke point
-  adapters/          slack · linear · github · notion · email · fixture
-fixtures/            Meridian Health, a clinical software vendor, as CSV
-demo.py              the three acts
+  intent.py          natural language → proposed actions, or a question
+  conformance.py     the suite every connector must pass
+  actions/           tiers, human gates, typed refusals, the one write choke point
+  adapters/          slack · linear · github · notion · email · sql · rest · fixture
+  web/               the console: design system + one module per screen
+services/dispensary/ a mock internal hospital system, for the custom-adapter path
+fixtures/            Meridian Health
 ```
 
-## Setup
+## Bugs this build actually found
 
-```bash
-uv venv && uv pip install -e ".[dev]"
-python demo.py
-```
+Recorded because "show how you know it works" should include how you learned it didn't.
+Full list in [BRIEF.md](BRIEF.md); the ones worth naming:
 
-Live connectors read credentials from `.env` (see `.env.example`). Absent credentials,
-everything falls back to fixtures and the full demo still runs.
+| Found by | Bug |
+|---|---|
+| Running the product | **Asking about a person returned nothing.** Identity resolution was built and never wired into retrieval, so 71 of 88 facts rendered an author of `p01` |
+| Running the product | **A customer appearing 15 times returned 0 records** — exact-substring matching, so `st anne` never matched `St. Anne's` |
+| Running the product | The graph had **zero edges**. Facts were ingested and never linked — a bag of records, not a graph |
+| Re-reading the code | **One approval became standing authority.** A fix for the gate stored the answer permanently, so the single write that reaches a customer could re-execute forever |
+| Adversarial review | The taint rule exempted tier TRIVIAL — which included setting an arbitrary IMAP flag, so a poisoned document could mark a real message `\Deleted` |
+| Conformance suite | `labs` keyed evidence on a non-unique column, collapsing a six-month trend into one record |
+
+## What this does not prove
+
+Stated because a reliability section that only lists successes is not one.
+
+- **Taint detection is a tripwire, not a perimeter.** Pattern matching over adversarial
+  text is false-negative-prone. It's safe to rely on only because it isn't what keeps the
+  system safe — ingested content can never justify a state-changing action regardless of
+  what it says, so a missed pattern costs the explanation, not the outcome.
+- **Contradiction detection is lexical.** It finds status and absence/presence conflicts
+  on shared specific referents. No semantic entailment.
+- **Identity resolution is deterministic, not calibrated.** The uncertain band goes to a
+  human rather than to a threshold.
+- **Live third-party APIs**: adapters are verified against recorded-shape transports and,
+  for the dispensary, a real running service. The demo video states which accounts were
+  connected live.

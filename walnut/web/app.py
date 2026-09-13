@@ -31,6 +31,8 @@ from ..contradiction import detect_contradictions
 from ..playbook import build_plan
 from ..observability import Tracer
 from ..intent import parse_intent
+from ..clinical_sources import register_clinical_sources
+from ..internal_systems import register_internal_systems
 from ..plugins import SourceRegistry
 from ..retrieval import assemble, link_by_subject
 from . import design
@@ -55,6 +57,7 @@ class State:
     last_intent: Any = None
     ingested: bool = False
     edges: int = 0
+    _internals_checked: bool = False
 
     def rebuild_agent(self) -> WalnutAgent:
         """Rebuild against whatever is currently connected.
@@ -88,6 +91,18 @@ class State:
         return self.agent
 
     def ingest(self) -> int:
+        # The customer's own internal systems join the brain like any other source.
+        # Unreachable ones are registered as failures the console can show, never
+        # silently skipped — that silence is the failure the coverage table exists for.
+        if not self._internals_checked:
+            self._internals_checked = True
+            try:
+                register_clinical_sources(self.registry)
+                register_internal_systems(self.registry)
+                self.rebuild_agent()
+            except Exception:  # noqa: BLE001 - an optional system must never block boot
+                pass
+
         agent = self.agent or self.rebuild_agent()
         # Honour the repo / database the operator actually chose.
         count = agent.ingest(scopes=self.connections.default_scopes(), limit=200)
@@ -183,14 +198,75 @@ def reingest() -> RedirectResponse:
 # -- connections ------------------------------------------------------------
 
 
-@app.get("/connections", response_class=HTMLResponse)
-def connections() -> HTMLResponse:
+@app.get("/connectors", response_class=HTMLResponse)
+def connectors() -> HTMLResponse:
+    """Built-in connectors and the customer's own systems, in one table.
+
+    To an admin these are the same object: a thing that puts records into the brain.
+    The split between a first-party adapter and a registered custom source is an
+    implementation detail, and a customer who connects their own database does not
+    think of it as second-class.
+    """
+    from .screens.connectors import page_connectors
+
+    state.ensure()
     return html(
-        views.page_connections(
-            [c.redacted() for c in state.connections.all()], APP_SPECS
-        ),
-        "Connections", "conn",
+        page_connectors([c.redacted() for c in state.connections.all()], APP_SPECS,
+                        state.registry.all(), str(state.registry.plugin_dir)),
+        "Connectors", "connectors",
     )
+
+
+@app.get("/connectors/{app_name}", response_class=HTMLResponse)
+def connector_detail(app_name: str) -> HTMLResponse:
+    """One connector: what it can see, what it can write, and why it is failing."""
+    from .screens.connectors import page_connector_detail
+
+    agent = state.ensure()
+    conn = next((c for c in state.connections.all() if c.app == app_name), None)
+    source = next((s for s in state.registry.all() if s.name == app_name), None)
+    adapter = state.all_adapters().get(app_name)
+
+    caps = None
+    if adapter is not None:
+        try:
+            caps = adapter.capabilities()
+        except Exception:  # noqa: BLE001 - an adapter that cannot describe itself
+            caps = None
+
+    facts = state.brain.by_app(app_name)
+    stamps = sorted(f.occurred_at or f.pointer.retrieved_at for f in facts) if facts else []
+    recent = [r for r in agent.executor.ledger.history() if r.action.app == app_name][-10:]
+
+    return html(
+        page_connector_detail(
+            conn.redacted() if conn else None,
+            APP_SPECS.get(app_name), source, caps, len(facts),
+            stamps[0].strftime("%Y-%m-%d") if stamps else "—",
+            stamps[-1].strftime("%Y-%m-%d") if stamps else "—",
+            recent,
+        ),
+        f"{app_name} · Connectors", "connectors",
+    )
+
+
+@app.get("/connections", response_class=HTMLResponse)
+def connections_legacy() -> HTMLResponse:
+    return connectors()
+
+
+@app.get("/sources", response_class=HTMLResponse)
+def sources_legacy() -> HTMLResponse:
+    return connectors()
+
+
+@app.post("/connectors/{app_name}/test")
+def test_connection(app_name: str) -> RedirectResponse:
+    """Re-probe a live credential. Validation is using it, not checking its shape."""
+    conn = next((c for c in state.connections.all() if c.app == app_name), None)
+    if conn is not None and conn.credentials:
+        state.connections.connect(app_name, dict(conn.credentials))
+    return back(f"/connectors/{app_name}")
 
 
 @app.post("/connections/{app_name}/connect")
@@ -375,14 +451,6 @@ def audit() -> HTMLResponse:
 
 
 # -- custom sources ---------------------------------------------------------
-
-
-@app.get("/sources", response_class=HTMLResponse)
-def sources() -> HTMLResponse:
-    return html(
-        views.page_sources(state.registry.all(), str(state.registry.plugin_dir)),
-        "Sources", "src",
-    )
 
 
 @app.post("/sources/add")

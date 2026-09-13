@@ -1,17 +1,16 @@
 kind,number,title,body,state,author_person_id,days_ago,approvals,linked_issue
-pr,270,feat: async dosing calculation pipeline,Moves dosing calculation to a redis-backed async worker pool. Part of dosing engine v2 work. Closes MED-405.,MERGED,p01,31,2,MED-405
-pr,274,feat: EHR integration hooks for dosing engine v2,"Adds EHR write-back hooks for computed doses, reuses the v2 job queue. Closes MED-408.",MERGED,p05,27,2,MED-408
-pr,279,feat: scheduling sync progress indicator (frontend),Websocket-driven progress indicator for the scheduling sync panel. Closes MED-401.,MERGED,p08,24,1,MED-401
-pr,281,chore: dosing engine v2 QA fixes,Small fixes found during the clinical QA pass in MED-410 (dosing bands up to 40kg only).,MERGED,p09,12,1,MED-410
-pr,284,docs: update dosing engine API docs for v2,Updates internal integration docs to reflect the new dosing engine v2 endpoints.,MERGED,p06,10,1,
-pr,288,fix: dosing engine v2 paediatric rounding above 40kg,"Fixes the paediatric dosing table lookup so patients above 40kg use the correct rounding band instead of falling through to the adult table. Should fix MED-412 (dosing engine v2 miscalculates paediatric doses above 40kg). Tested locally against synthetic paediatric patient profiles up to 90kg, still need clinical safety sign-off before merging. Holding on merge until clinical safety review completes - do not want to re-announce this as fixed until it is verified.",OPEN,p01,6,0,MED-412
-issue,289,scheduling sync occasionally stuck at 99%,"Cosmetic bug, sync actually completes fine but the UI progress bar sticks at 99% for a few seconds before jumping to done.",OPEN,p08,5,0,
-pr,291,fix: scheduling sync progress bar stuck at 99%,Fixes off-by-one in the sync progress event emitter. Closes #289.,MERGED,p08,3,1,
-issue,293,add audit trail for manual dosing overrides,"See MED-415. Need to log clinician, patient encounter id, override reason and timestamp for every manual dosing override.",OPEN,p02,5,0,MED-415
-issue,295,dosing audit log for HIPAA / 21 CFR Part 11 prep,"See MED-395. Need actor, patient encounter reference, dosing value and timestamp for every calculation.",OPEN,p01,21,0,MED-395
-pr,297,test: fix flaky dosing_v2_integration_test,"Adds a small sleep + retry around the async job assertion. Underlying race was in the test fixture, not product code. See MED-398.",MERGED,p05,8,1,MED-398
-issue,299,better error messages on dosing safety-check failure,See MED-407. A silent block on an unsafe dose is not actionable for clinicians.,OPEN,p01,8,0,MED-407
-pr,301,chore: add manual double-check banner for paediatric doses above 40kg,Small mitigation while MED-412 is in progress - surfaces a manual double-check banner to clinicians for the affected weight band. Not a real fix.,MERGED,p02,4,1,MED-412
-issue,303,sales demo environment is stale,"See MED-430. Demo data hasn't been refreshed since v1, doesn't showcase v2 features well.",OPEN,p10,6,0,MED-430
-pr,305,fix: slow scheduling sync queries,Adds a missing index that the tuesday migration should have included. See MED-413.,MERGED,p05,2,1,MED-413
-issue,307,clinical validation at scale after MED-412 fix,Follow-up validation task once #288 lands. See MED-433.,OPEN,p01,1,0,MED-433
+pr,201,feat: async rota sync pipeline,Moves the overnight rota push to a redis-backed async worker pool. Part of rota sync v2 work. Closes MED-405.,MERGED,p08,33,2,MED-405
+pr,205,feat: handover note push for rota sync v2,"Adds the shared-inbox push for overnight handover notes, reuses the v2 job queue. Closes MED-408.",MERGED,p07,28,2,MED-408
+pr,209,feat: printer queue alerting (front desk),Notifies front desk when a site's print queue backs up. Closes MED-401.,MERGED,p07,29,1,MED-401
+pr,212,chore: rota sync v2 rollout fixes,Small fixes found during the six-site rollout check in MED-410.,MERGED,p09,12,1,MED-410
+pr,214,docs: update rota sync v2 internal runbook,Updates the internal ops runbook to reflect the new rota sync v2 job names.,MERGED,p07,10,1,
+pr,217,fix: rota sync v2 overnight handover push for site 7,"Fixes the stale mailbox id for site 7 so the overnight handover push actually delivers. Should fix MED-412 (rota sync v2 fails to push overnight handover changes for site 7). Tested locally against a copy of site 7's mailbox config, still need ben's sign-off before merging. Holding on merge until IT sign-off completes - do not want to re-announce this as fixed until it is verified.",OPEN,p08,6,0,MED-412
+issue,219,scheduling-sync dashboard occasionally stuck at 99%,"Cosmetic bug, sync actually completes fine but the UI progress bar sticks at 99% for a few seconds before jumping to done.",OPEN,p07,5,0,
+pr,221,fix: scheduling-sync dashboard stuck at 99%,Fixes an off-by-one in the sync progress event emitter. Closes #219.,MERGED,p07,3,1,
+issue,223,add change log for manual rota overrides,"See MED-415. Need to log staff member, timestamp, and reason for every manual rota edit.",OPEN,p09,5,0,MED-415
+pr,227,test: fix flaky rota_sync_v2_integration_test,"Adds a small sleep + retry around the async job assertion. Underlying race was in the test fixture, not product code. See MED-398.",MERGED,p08,8,1,MED-398
+issue,229,better error message on printer-queue alert failure,See MED-407. A silent failure isn't actionable for front desk staff.,OPEN,p07,8,0,MED-407
+pr,231,chore: staff directory app - add site 7 building change,Small admin fix to the internal staff directory tool after site 7's office move.,MERGED,p09,4,1,
+issue,233,internal admin dashboard login times out too fast,"Session on the internal admin dashboard expires after 5 minutes, annoying for longer data-entry tasks.",OPEN,p07,6,0,
+pr,235,fix: slow scheduling-sync queries,Adds a missing index that tuesday's migration should have included. See MED-413.,MERGED,p07,2,1,MED-413
+issue,237,rota sync v2 validation at scale after MED-412 fix,Follow-up validation task once #217 lands. See MED-433.,OPEN,p08,1,0,MED-433

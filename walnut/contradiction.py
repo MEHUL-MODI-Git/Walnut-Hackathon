@@ -40,6 +40,20 @@ class ClaimStatus(StrEnum):
     COMPLETE = "complete"
     IN_FLIGHT = "in_flight"
     BLOCKED = "blocked"
+
+    ABSENT = "absent"
+    """A record asserts a thing is NOT there: "none recorded", "no known allergies"."""
+
+    PRESENT = "present"
+    """Another source reports that same thing IS there.
+
+    Absent-versus-present is a different shape of disagreement from the status ladder,
+    and the more dangerous one. A status conflict means two systems disagree about
+    progress; an absence conflict means one system is missing something another one
+    knows — which is precisely the failure a company brain exists to catch. It is also
+    entirely general: "no known issues" against a reported issue is the same shape.
+    """
+
     UNKNOWN = "unknown"
 
 
@@ -62,6 +76,25 @@ _BLOCKED = re.compile(
     r"does ?n[o']t work|cannot|can'?t)\b",
     re.I,
 )
+# "none recorded", "no known allergies", "nil", "not documented" — a record stating
+# that a field is empty. Deliberately narrow: this must fire on a structured assertion
+# of absence, not on any sentence containing the word "no".
+_ABSENT = re.compile(
+    r"\b(?:none\s+(?:recorded|known|documented|reported)"
+    r"|no\s+known\s+\w+"
+    r"|nil\s+(?:known|recorded)"
+    r"|not\s+(?:recorded|documented|on\s+file)"
+    r"|allergies\s*[:=]\s*(?:none|nil|nkda)\b)",
+    re.I,
+)
+
+# Someone reporting the thing the record says is absent.
+_PRESENT = re.compile(
+    r"\b(?:reports?|reported|reaction\s+to|allergic\s+to|came\s+out\s+in\s+a\s+rash"
+    r"|flagging|flagged\s+(?:an?|that)|confirmed\s+\w+\s+allergy)\b",
+    re.I,
+)
+
 _NEGATED_COMPLETE = re.compile(
     r"\b(not|isn'?t|was ?n'?t|never|no longer)\s+(?:\w+\s+){0,2}"
     r"(shipped|released|live|deployed|merged|done|fixed|resolved)\b",
@@ -70,6 +103,8 @@ _NEGATED_COMPLETE = re.compile(
 
 # Subject keys the demo turns on: issue keys, PR references, and feature names.
 _ISSUE_KEY = re.compile(r"\b([A-Z]{2,5}-\d{1,6})\b")
+# Record identifiers (an MRN here) link a database row to the prose about it.
+_RECORD_ID = re.compile(r"\b(MR-\d{3,6})\b", re.I)
 _PR_REF = re.compile(r"(?:\bPR\s*#?|#)(\d{1,6})\b", re.I)
 # A versioned product name: one or two words immediately before a version token.
 # Deliberately NOT a hard-coded vocabulary — an earlier version listed the feature
@@ -101,6 +136,7 @@ def extract_subjects(text: str) -> set[str]:
     subjects: set[str] = set()
     subjects.update(m.group(1).upper() for m in _ISSUE_KEY.finditer(text))
     subjects.update(f"PR#{m.group(1)}" for m in _PR_REF.finditer(text))
+    subjects.update(m.group(1).upper() for m in _RECORD_ID.finditer(text))
     for m in _FEATURE.finditer(text):
         # Take the FIRST non-stopword of the one or two words before the version.
         # A leftmost-greedy single capture grabs the preposition in "for dosing v2"
@@ -127,6 +163,12 @@ _QUOTED = re.compile(r"[\"'‘’“”]([^\"'‘’“”]{1,80})[\"'‘’“�
 
 
 def _classify_prose(text: str) -> ClaimStatus:
+    # Absence and presence are checked first: they are a stronger, more specific signal
+    # than the status ladder, and a record can carry both kinds of vocabulary.
+    if _ABSENT.search(text):
+        return ClaimStatus.ABSENT
+    if _PRESENT.search(text):
+        return ClaimStatus.PRESENT
     if _NEGATED_COMPLETE.search(text):
         return ClaimStatus.BLOCKED
     if _BLOCKED.search(text):
@@ -230,6 +272,9 @@ _INCOMPATIBLE: frozenset[frozenset[ClaimStatus]] = frozenset(
     {
         frozenset({ClaimStatus.COMPLETE, ClaimStatus.IN_FLIGHT}),
         frozenset({ClaimStatus.COMPLETE, ClaimStatus.BLOCKED}),
+        # One system says the field is empty; another says it is not. The most
+        # consequential disagreement a company brain can surface.
+        frozenset({ClaimStatus.ABSENT, ClaimStatus.PRESENT}),
     }
 )
 

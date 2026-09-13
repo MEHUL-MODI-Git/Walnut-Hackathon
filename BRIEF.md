@@ -34,10 +34,10 @@ written. The run is reproducible, and its misses are inspectable rather than mys
 
 | | Claim | Evidence |
 |---|---|---|
-| PASS | Ingests from five independent apps | 88 records from 5 apps |
+| PASS | Ingests from five independent apps | 80 records from 5 apps |
 | PASS | Resolves one human across multiple app identities | 10 people resolved across more than one app |
-| PASS | Escalates uncertain identity matches instead of guessing | 6 held for human review |
-| PASS | Surfaces cross-app contradictions | 15 found; top subject feature:dosingv2 |
+| PASS | Escalates uncertain identity matches instead of guessing | 3 held for human review |
+| PASS | Surfaces cross-app contradictions | 9 found; top subject feature:rotav2 |
 | PASS | An action with no justifying evidence cannot be constructed | ValueError raised at construction, not at execution |
 | PASS | Executes internal actions across multiple apps | 4 executed |
 | PASS | Holds the customer-facing action for a human | email.send_email queued for approval; gate fails closed on no answer |
@@ -48,17 +48,17 @@ written. The run is reproducible, and its misses are inspectable rather than mys
 
 ## Numbers
 
-- **Facts ingested:** 88 across
+- **Facts ingested:** 80 across
   5 apps (email, github, linear, notion, slack)
-- **Graph:** 88 nodes, 0 edges
-- **Contradictions surfaced:** 15
-- **Identity resolution:** {'people': 16, 'identities': 45, 'cross_app': 10, 'needs_human_review': 6}
+- **Graph:** 80 nodes, 0 edges
+- **Contradictions surfaced:** 9
+- **Identity resolution:** {'people': 13, 'identities': 43, 'cross_app': 10, 'needs_human_review': 3}
 - **Action ledger:** {'executed': 5, 'undone': 1, 'refused': 2, 'refusal_reasons': ['gate_timeout', 'tainted_instruction']}
 
 ## Test suite
 
 ```
-1 failed, 294 passed in 4.35s
+1 failed, 327 passed in 5.19s
 ```
 
 Tests run with **no network and no credentials**. Every adapter — including the fixture

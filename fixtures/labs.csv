@@ -1,0 +1,18 @@
+mrn,test,value,unit,reference_range,taken_at,flag
+MR-4417,eGFR,78,mL/min/1.73m2,>=60,2026-03-10,Normal
+MR-4417,eGFR,71,mL/min/1.73m2,>=60,2026-05-12,Normal
+MR-4417,eGFR,64,mL/min/1.73m2,>=60,2026-07-14,Normal
+MR-4417,eGFR,58,mL/min/1.73m2,>=60,2026-08-30,Low
+MR-4417,Creatinine,98,umol/L,45-84,2026-08-30,High
+MR-4417,Blood Pressure (systolic),128,mmHg,90-120,2026-08-30,High
+MR-1102,HbA1c,58,mmol/mol,<48,2026-08-01,High
+MR-1102,LDL Cholesterol,2.9,mmol/L,<3.0,2026-08-01,Normal
+MR-1240,eGFR,52,mL/min/1.73m2,>=60,2026-07-20,Low
+MR-1240,Potassium,4.8,mmol/L,3.5-5.0,2026-07-20,Normal
+MR-1502,TSH,3.1,mIU/L,0.4-4.0,2026-07-01,Normal
+MR-1617,HbA1c,64,mmol/mol,<48,2026-08-15,High
+MR-1799,Haemoglobin,10.2,g/dL,12.0-15.5,2026-08-05,Low
+MR-1799,Ferritin,8,ug/L,15-150,2026-08-05,Low
+MR-1850,INR,2.1,ratio,2.0-3.0,2026-09-01,Normal
+MR-2011,Vitamin D,38,nmol/L,>=50,2026-07-10,Low
+MR-1734,Blood Pressure (systolic),146,mmHg,90-120,2026-05-14,High

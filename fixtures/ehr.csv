@@ -1,0 +1,17 @@
+mrn,full_name,dob,sex,problem_list,medications,allergies,last_updated,site
+MR-4417,Ankusha Rao,1992-03-14,F,"Chronic kidney disease stage 2 (monitored, renal follow-up); hypertension","co-amoxiclav 625mg TDS (7-day course, recurrent sinusitis); amlodipine 5mg OD",None recorded,2026-09-02,Riverside
+MR-1102,Daniel Okonkwo,1978-11-02,M,Type 2 diabetes; hyperlipidaemia,metformin 500mg BD; atorvastatin 20mg OD,Penicillin - rash (recorded 2018),2026-08-20,Elmwood
+MR-1183,Freya Lindqvist,2001-06-19,F,Asthma (mild intermittent),salbutamol inhaler PRN,NKDA,2026-07-30,Birchfield
+MR-1240,Marcus Ellery,1965-01-27,M,Ischaemic heart disease; hypertension; CKD stage 3a,atorvastatin 40mg OD; ramipril 5mg OD; aspirin 75mg OD,Sulfa drugs - hives,2026-09-05,Cedar Hollow
+MR-1356,Priyanka Deshmukh,1990-09-08,F,Migraine; generalised anxiety,sumatriptan PRN; sertraline 50mg OD,None recorded,2026-06-11,Fairview
+MR-1489,Owen Baptiste,1955-04-30,M,COPD; osteoarthritis,tiotropium inhaler OD; paracetamol 1g QDS PRN,Codeine - nausea,2026-08-02,Maple Court
+MR-1502,Chiara Bellini,1988-12-15,F,Hypothyroidism,levothyroxine 75mcg OD,NKDA,2026-07-18,Oakdale
+MR-1617,Tobias Reinholt,1972-02-09,M,Type 2 diabetes; peripheral neuropathy,metformin 1g BD; gabapentin 300mg TDS,None recorded,2026-08-28,Brookside
+MR-1688,Wren Castellan,2015-05-22,F,Recurrent otitis media,"amoxicillin 250mg TDS (5-day course, ear infection)",NKDA,2026-09-01,Hillcrest
+MR-1734,Salim Hosseini,1983-08-03,M,Hypertension,amlodipine 10mg OD,Penicillin - anaphylaxis (recorded 2011),2026-05-14,Riverside
+MR-1799,Nadia Fournier,1996-10-11,F,Iron deficiency anaemia,ferrous sulfate 200mg OD,NKDA,2026-08-09,Elmwood
+MR-1850,Elias Vandermeer,1960-07-25,M,Atrial fibrillation; hypertension,apixaban 5mg BD; bisoprolol 5mg OD,None recorded,2026-09-08,Cedar Hollow
+MR-1901,Grace Amoah,2004-01-17,F,Polycystic ovary syndrome,combined oral contraceptive OD,Latex - contact dermatitis,2026-06-30,Birchfield
+MR-1966,Callum Whitmore,1975-03-05,M,Chronic lower back pain,naproxen 500mg BD PRN,NKDA,2026-07-22,Fairview
+MR-2011,Ingrid Solberg,1948-12-01,F,Osteoporosis; hypertension,alendronic acid 70mg weekly; ramipril 2.5mg OD,None recorded,2026-08-14,Maple Court
+MR-2087,Rafael Quintero,1999-02-28,M,Seasonal allergic rhinitis,cetirizine 10mg OD PRN,"Tree pollen (environmental, not drug)",2026-06-05,Oakdale

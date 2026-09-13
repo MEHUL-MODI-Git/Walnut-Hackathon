@@ -1,23 +1,21 @@
 msg_id,channel,author_person_id,text,days_ago,thread_parent_id
-sl001,#eng,p02,"dosing v2 is live at all sites 🎉🎉 async pipeline, ehr write-back, and paediatric dosing tables are all GA. huge effort from the whole team, proud of yall",9,
-sl002,#eng,p01,"🎉 tho lil heads up - still double checking the paediatric rounding band above 40kg, dont wanna call that part fully solved yet. tracking in MED-412, opened a PR but need clinical safety review",9,sl001
-sl003,#eng,p06,"noted, adding a line to the spec doc so it's not a surprise later",9,sl001
-sl004,#general,p07,congrats on shipping dosing v2 team!! hospital partners have been asking for this for months,8,
-sl005,#eng,p05,"deploy went smooth, nothing weird in the error logs so far (knock on wood)",9,
-sl006,#support,p03,"heads up - st. anne's children's hospital is reporting paediatric doses calculating wrong again, opening a ticket to track",3,
-sl007,#support,p09,"same site (st. anne's) messaged again this morning, their peds pharmacist says it's still wrong on their end for kids over 40kg",2,sl006
-sl008,#support,p03,"st. anne's just replied to the ticket - paediatric doses are STILL calculating wrong for patients above 40kg. they're heated, said ""you told us this shipped last week"" and are asking to speak with someone senior",1,sl006
-sl009,#eng,p01,"yeah i saw the st. anne's escalation come thru. PR is up (#288) but it needs clinical safety sign-off before we can merge, sorry this is dragging",1,
-sl010,#support,p04,"got st. anne's pharmacy director on the phone just now. still frustrated but said they'll hold off escalating further if we can give a real date this time, not another 'shipped'",1,sl008
-sl011,#eng,p02,"can someone get eyes on PR288 today pls, this is actively affecting patient dosing at a live hospital site",1,
-sl012,#eng,p05,"on it, pulling it down now",1,sl011
-sl013,#general,p10,"demoed dosing v2 to a prospect health system this morning, they loved the ehr write-back. def a differentiator vs the competition",7,
-sl014,#eng,p08,"frontend for the scheduling sync progress bar is merged, using websocket updates instead of polling so it should feel snappier",10,
-sl015,#support,p03,"closed out 3 tickets today, mostly clinicians confused by the new scheduling UI but fine after a quick walkthrough",5,
-sl016,#general,p07,"reminder: all-hands this friday 10am, will cover q3 roadmap + the st. anne's situation",4,
-sl017,#eng,p01,anyone else seeing slow queries on the scheduling sync dashboard today? unrelated to dosing afaik,6,
-sl018,#eng,p05,"yeah looking into it, probably the new index migration from tuesday",6,sl017
-sl019,#product,p06,"dosing engine v2 spec is updated w/ final status, linking here for anyone who missed the announcement: notion.so/meridianhealth/dosing-v2-spec",9,
-sl020,#support,p09,"another site (cedar valley) asking if the EHR export supports HL7 v2.x, told them yes it's been supported since v1.4",3,
-sl021,#eng,p02,"weekly eng sync moved to 2pm this week, calendar invites updated",12,
-sl022,#support,p04,"st. anne's renewal is up in 6 weeks fyi, this timing is rough given the ticket",1,sl008
+sl001,#care-team,p01,"just spoke with ankusha rao (mrn MR-4417) ahead of her appt today - she told me she came out in a rash all over as a kid after being given amoxicillin. that is NOT showing anywhere in her chart allergies right now, flagging this here so nobody else prescribes it before it's properly recorded",12,
+sl002,#care-team,p05,thanks for flagging priya - can you add a note to her file after the appt so it doesn't get missed again,12,sl001
+sl003,#care-team,p01,"will do, just wanted the team to see it straight away in case she's seen before i get to it",12,sl001
+sl004,#care-team,p02,"noted, seeing her in twenty mins, will ask her about it directly",12,sl001
+sl005,#care-team,p04,"pharmacy heads up too, we'll hold off dispensing any penicillin-class scripts for her until the chart's updated",11,
+sl006,#care-team,p09,reminder the antibiotic prescribing protocol doc is in notion if anyone needs the allergy-check steps,30,
+sl007,#general,p05,"reminder: all-site huddle this friday 9am, will cover q3 site metrics + facilities updates",4,
+sl008,#general,p10,"welcome our new front desk hire starting monday at elmwood, say hi if you're on site",20,
+sl009,#it-ops,p08,"rota sync v2 is live at all sites 🎉 overnight handover push and printer-queue alerts are all GA now, no more manual rota emails",9,
+sl010,#it-ops,p08,"🎉 tho heads up - still double checking the overnight push for site 7, don't wanna call that part fully solved yet. tracking in MED-412, opened a PR but need ben's sign-off first",9,sl009
+sl011,#it-ops,p07,"noted, adding a line to the spec doc so it's not a surprise later",9,sl009
+sl012,#it-ops,p09,"site 7 front desk here - overnight handover notes from last night didn't sync again, had to text the on-call gp directly",3,
+sl013,#it-ops,p08,"yeah seeing that, still the same push job issue, PR is up (#217) but it needs sign-off before we can merge, sorry this is dragging",1,
+sl014,#it-ops,p07,"can someone get eyes on the PR today pls, site 7 is manually re-typing the handover every morning",1,
+sl015,#it-ops,p08,"on it, pulling it down now",1,sl014
+sl016,#admin,p09,"printer on level 2 at riverside is jammed again, submitted a ticket",6,
+sl017,#admin,p10,"closed out a few scheduling tickets today, mostly clinicians double-booked after the room change",5,
+sl018,#admin,p05,"ankusha rao's thursday follow-up needs moving, room clash with the pharmacist clinic - logging a ticket",2,
+sl019,#it-ops,p07,"weekly it sync moved to 2pm this week, calendar invites updated",12,
+sl020,#care-team,p06,"reminder to everyone: any allergy or adverse reaction reported by a patient should go straight into the chart the same day, not just a note here",10,

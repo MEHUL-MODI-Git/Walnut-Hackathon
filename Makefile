@@ -1,4 +1,4 @@
-.PHONY: help install test demo web brief check clean
+.PHONY: help install test demo web brief check clean dispensary stack
 PY := ./.venv/bin/python
 
 help:
@@ -6,6 +6,7 @@ help:
 	@echo "make test      run the full suite (no network, no credentials)"
 	@echo "make demo      the three-act CLI demo"
 	@echo "make web       serve the console on :8000"
+	@echo "make stack     console + the mock internal hospital system"
 	@echo "make brief     generate BRIEF.md from a live run"
 	@echo "make check     what to run before recording the demo"
 
@@ -21,6 +22,17 @@ demo:
 
 web:
 	./.venv/bin/uvicorn walnut.web.app:app --reload --port 8000
+
+# A stand-in for a customer's own internal system, so the custom-adapter path is
+# demonstrable against real HTTP rather than a fixture.
+dispensary:
+	./.venv/bin/uvicorn services.dispensary.app:app --port 8900
+
+# Both at once. Walnut auto-registers the dispensary when it is reachable; when it
+# is not, the coverage table reports it as "not searched" rather than hiding it.
+stack:
+	@./.venv/bin/uvicorn services.dispensary.app:app --port 8900 & \
+	sleep 2 && ./.venv/bin/uvicorn walnut.web.app:app --reload --port 8000
 
 brief:
 	$(PY) -m walnut.brief > BRIEF.md && echo "wrote BRIEF.md"
