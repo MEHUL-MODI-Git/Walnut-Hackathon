@@ -53,9 +53,35 @@ fi
 
 mkdir -p "$(dirname "$OUT")"
 
+# An operator-recorded clip laid over the "linear" slot. Linear's sign-in refuses
+# automated browsers, so the real issue is shown from a screen recording made in the
+# operator's own browser: scaled to the frame, shown for exactly the slot the recorder
+# left, trimmed never stretched, last frame held if the clip runs short.
+#     LINEAR_CLIP=path/to/clip.mov bash scripts/finish_demo.sh
+LINEAR_CLIP="${LINEAR_CLIP:-}"
+INPUTS=(-i "$VIDEO" -i "$AUDIO")
+VIDEO_ARGS=(-map 0:v:0)
+if [ -n "$LINEAR_CLIP" ]; then
+  [ -f "$LINEAR_CLIP" ] || fail "no clip at $LINEAR_CLIP"
+  TL="$ROOT/runs/demo/timeline.json"
+  [ -f "$TL" ] || fail "no timeline.json — record first"
+  SLOT="$(python3 "$ROOT/scripts/_slot.py" "$TL" linear)"
+  [ -n "$SLOT" ] || fail "the recording has no 'linear' slot"
+  SLOT_AT="${SLOT% *}"; SLOT_FOR="${SLOT#* }"
+  SLOT_END="$(awk -v a="$SLOT_AT" -v f="$SLOT_FOR" 'BEGIN{printf "%.2f", a+f}')"
+  printf '  clip   %s  → over the Linear slot at %ss for %ss\n' "${LINEAR_CLIP##*/}" "$SLOT_AT" "$SLOT_FOR"
+  INPUTS+=(-i "$LINEAR_CLIP")
+  FILTER="[2:v]trim=0:${SLOT_FOR},setpts=PTS-STARTPTS,fps=25,"
+  FILTER+="scale=1280:800:force_original_aspect_ratio=decrease:flags=lanczos,"
+  FILTER+="pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=#FBFAF7,"
+  FILTER+="tpad=stop_mode=clone:stop_duration=${SLOT_FOR},setpts=PTS+${SLOT_AT}/TB[clip];"
+  FILTER+="[0:v][clip]overlay=eof_action=pass:enable='between(t,${SLOT_AT},${SLOT_END})'[v]"
+  VIDEO_ARGS=(-filter_complex "$FILTER" -map "[v]")
+fi
+
 ffmpeg -y -v error -stats \
-  -i "$VIDEO" -i "$AUDIO" \
-  -map 0:v:0 -map 1:a:0 \
+  "${INPUTS[@]}" \
+  "${VIDEO_ARGS[@]}" -map 1:a:0 \
   -c:v libx264 -crf 20 -preset medium -pix_fmt yuv420p \
   -c:a aac -b:a 192k -ar 44100 \
   -af apad -shortest \

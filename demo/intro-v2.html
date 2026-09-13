@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Walnut — intro</title>
+<meta name="viewport" content="width=1280">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FBFAF7;
+  --surface:#FFFFFF;
+  --ink:#1A1D1A;
+  --muted:#63675F;
+  --rule:#E4E1D9;
+  --walnut:#7A4B2A;
+  --attention:#9A6A17;
+  --line:#C4BEB2;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1280px;height:800px;overflow:hidden}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font:400 14px/1.5 "IBM Plex Sans",ui-sans-serif,-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+.stage{position:relative;width:1280px;height:800px;overflow:hidden}
+
+/* ---- graph lines ---- */
+svg.links{position:absolute;inset:0;width:1280px;height:800px;pointer-events:none}
+svg.links line{stroke:var(--line);stroke-width:1;stroke-linecap:round;shape-rendering:geometricPrecision}
+
+/* ---- source card ---- */
+.card{
+  position:absolute;top:0;left:0;
+  width:300px;height:92px;
+  padding:16px 18px;
+  background:var(--surface);
+  border:1px solid var(--rule);
+  border-radius:6px;
+  opacity:0;
+  will-change:transform,opacity;
+}
+.card .head{
+  display:flex;align-items:center;height:16px;
+}
+.card .head svg{
+  width:16px;height:16px;flex:none;
+  color:var(--muted);
+  display:block;
+}
+.card .lbl{
+  margin-left:9px;
+  font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
+  line-height:16px;
+  color:var(--muted);
+  transform:translateY(.5px); /* optical: caps sit on the icon's centre line */
+}
+.card .txt{
+  margin-top:9px;
+  font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  font-size:12px;font-weight:400;line-height:17px;
+  color:rgba(26,29,26,.85);
+  white-space:normal;
+}
+.card .ring{
+  position:absolute;inset:-5px;
+  border:1px solid var(--attention);
+  border-radius:10px;
+  opacity:0;
+  pointer-events:none;
+}
+
+/* ---- hub ---- */
+.hub{
+  position:absolute;top:0;left:0;
+  width:208px;height:112px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:var(--surface);
+  border:1px solid var(--walnut);
+  border-radius:6px;
+  opacity:0;
+  will-change:transform,opacity;
+}
+.hub svg{width:24px;height:24px;display:block;color:var(--walnut)}
+.hub .word{
+  margin-top:10px;
+  font-size:19px;font-weight:600;letter-spacing:-.01em;line-height:1;
+  color:var(--ink);
+}
+.hub .sub{
+  margin-top:8px;
+  font-size:10px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;line-height:1;
+  color:var(--muted);
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <svg class="links" id="links" viewBox="0 0 1280 800" width="1280" height="800" aria-hidden="true"></svg>
+  <div class="hub" id="hub" aria-label="Walnut — company brain">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" aria-hidden="true">
+      <path d="M12 9.6V5.4M14.08 10.8l3.64-2.1M14.08 13.2l3.64 2.1M12 14.4v4.2M9.92 13.2l-3.64 2.1M9.92 10.8 6.28 8.7"/>
+      <g fill="currentColor" stroke="none">
+        <circle cx="12" cy="12" r="2.4"/>
+        <circle cx="12" cy="3.5" r="1.9"/><circle cx="19.36" cy="7.75" r="1.9"/><circle cx="19.36" cy="16.25" r="1.9"/>
+        <circle cx="12" cy="20.5" r="1.9"/><circle cx="4.64" cy="16.25" r="1.9"/><circle cx="4.64" cy="7.75" r="1.9"/>
+      </g>
+    </svg>
+    <div class="word">Walnut</div>
+    <div class="sub">Company brain</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ------------------------------------------------------------------ *
+   * One clock, one pure render(t). `?t=<s>` renders that frame and stops.
+   * ------------------------------------------------------------------ */
+  var DURATION = 20.0;
+
+  var CARD_W = 300, CARD_H = 92;
+  var HUB_W = 208, HUB_H = 112;
+  var CX = 640, CY = 400;
+  var RX = 400, RY = 246;
+  var GAP = 11;                       /* lines stop this short of every box */
+
+  /* Icons: one family — 24 grid, 1.5 stroke, round caps and joins, no fills. */
+  var ICON = {
+    email:    '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7.5 9 5.5 9-5.5"/>',
+    docs:     '<path d="M14.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5z"/><path d="M14.5 3v4.5H19"/><path d="M9 13h6M9 17h6"/>',
+    chat:     '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    db:       '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/>',
+    labs:     '<path d="M9.5 3v6.2a2 2 0 0 1-.24 .95L4.6 19.3a1.2 1.2 0 0 0 1.06 1.7h12.68a1.2 1.2 0 0 0 1.06-1.7l-4.66-9.15a2 2 0 0 1-.24-.95V3"/><path d="M8 3h8"/><path d="M6.6 15.5h10.8"/>',
+    pharmacy: '<path d="M10.5 20.5l10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7z"/><path d="m8.5 8.5 7 7"/>'
+  };
+
+  /* `a` is the angle on the final ring (0 = east, counter-clockwise).
+     `s` is where the fragment sits while scattered. `r` is its idle tilt.
+     `in` is arrival order — roughly the order the narration names them. */
+  var SOURCES = [
+    { key: "docs",     label: "Documents",       txt: "discharge summary p.3 — allergies",          a:  60, s: [706, 112], r:  1.1, in: 0 },
+    { key: "email",    label: "Email",           txt: "referral: ?penicillin reaction, 2019",        a: 120, s: [326, 152], r: -1.3, in: 1 },
+    { key: "chat",     label: "Chat",            txt: "“she came out in a rash after amoxicillin”", a: 0, s: [1012, 292], r: -0.9, in: 2 },
+    { key: "db",       label: "Database",        txt: "Allergies: none recorded",                    a: 180, s: [246, 468], r:  1.4, in: 3 },
+    { key: "labs",     label: "Lab results",     txt: "eGFR 54 · flagged 3 days ago",           a: 240, s: [498, 676], r: -1.5, in: 4 },
+    { key: "pharmacy", label: "Pharmacy system", txt: "co-amoxiclav · queued today",             a: 300, s: [958, 592], r:  0.8, in: 5 }
+  ];
+
+  /* Spokes draw clockwise from the top-right; chords sit on the perimeter so
+     the finish reads as a graph, not a star, and no line crosses another. */
+  var SPOKE_ORDER = ["docs", "chat", "pharmacy", "labs", "db", "email"];
+  var CHORDS = [["chat", "pharmacy"], ["email", "db"]];
+
+  var T = {
+    cardIn:   { at: 0.70, step: 0.56, dur: 0.95 },
+    focusIn:  { at: 8.20, dur: 0.90 },
+    focusOut: { at: 12.35, dur: 0.85 },
+    travel:   { at: 13.20, step: 0.07, dur: 2.30 },
+    hubIn:    { at: 14.55, dur: 0.85 },
+    spoke:    { at: 15.30, step: 0.08, dur: 0.75 },
+    chord:    { at: 16.40, step: 0.16, dur: 0.65 }
+  };
+
+  /* ---- easing ---- */
+  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function seg(t, t0, dur) { return clamp01((t - t0) / dur); }
+  function eo(p) { var u = 1 - p; return 1 - u * u * u; }          /* ease-out cubic */
+  /* Soft start, long deceleration tail: the last 15% of the distance takes
+     ~40% of the time. f(0.6) ≈ 0.83, f'(0)=0, f'(1)=0. */
+  function settle(p) { return 1 - Math.pow(1 - Math.pow(p, 1.4), 2.6); }
+  function lerp(a, b, p) { return a + (b - a) * p; }
+  function mix(from, to, p) {
+    return "rgb(" + [0, 1, 2].map(function (i) { return Math.round(lerp(from[i], to[i], p)); }).join(",") + ")";
+  }
+  var RULE = [228, 225, 217], ATTN = [154, 106, 23], MUTED = [99, 103, 95], INK = [26, 29, 26];
+
+  /* ---- geometry ---- */
+  function ringPos(deg) {
+    var r = deg * Math.PI / 180;
+    return [CX + RX * Math.cos(r), CY - RY * Math.sin(r)];
+  }
+  /* Point where the centre-to-centre line leaves a box, pushed out by `gap`. */
+  function exit(cx, cy, w, h, dx, dy, gap) {
+    var hw = w / 2, hh = h / 2;
+    var tx = Math.abs(dx) < 1e-6 ? Infinity : hw / Math.abs(dx);
+    var ty = Math.abs(dy) < 1e-6 ? Infinity : hh / Math.abs(dy);
+    var t = Math.min(tx, ty), len = Math.hypot(dx, dy);
+    return [cx + dx * t + (dx / len) * gap, cy + dy * t + (dy / len) * gap];
+  }
+  function edge(a, b) {
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var p = exit(a.x, a.y, a.w, a.h, dx, dy, GAP);
+    var q = exit(b.x, b.y, b.w, b.h, -dx, -dy, GAP);
+    return { x1: p[0], y1: p[1], x2: q[0], y2: q[1] };
+  }
+
+  /* ---- build ---- */
+  var stage = document.getElementById("stage");
+  var svg = document.getElementById("links");
+  var hub = document.getElementById("hub");
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  var nodes = {};
+  SOURCES.forEach(function (src, i) {
+    var el = document.createElement("article");
+    el.className = "card";
+    el.setAttribute("data-key", src.key);
+    el.innerHTML =
+      '<div class="head">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" ' +
+             'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[src.key] + '</svg>' +
+        '<span class="lbl"></span>' +
+      '</div>' +
+      '<div class="txt"></div>' +
+      (src.key === "chat" ? '<div class="ring"></div>' : '');
+    el.querySelector(".lbl").textContent = src.label;
+    el.querySelector(".txt").textContent = src.txt;
+    stage.appendChild(el);
+
+    var r = ringPos(src.a);
+    nodes[src.key] = {
+      el: el,
+      icon: el.querySelector("svg"),
+      lbl: el.querySelector(".lbl"),
+      ring: el.querySelector(".ring"),
+      sx: src.s[0], sy: src.s[1], rx: r[0], ry: r[1], rot: src.r,
+      /* idle drift: two slow, mutually prime periods so nothing visibly loops */
+      d: [2.6 + (i % 3) * 0.5, 2.0 + (i % 2) * 0.6, 7.9 + i * 1.7, 10.3 + i * 1.3, i * 1.11, i * 0.73]
+    };
+  });
+
+  var hubBox = { x: CX, y: CY, w: HUB_W, h: HUB_H };
+
+  var lines = [];
+  function addLine(g, at, dur, opacity) {
+    var ln = document.createElementNS(SVGNS, "line");
+    ln.setAttribute("x1", g.x1.toFixed(2)); ln.setAttribute("y1", g.y1.toFixed(2));
+    ln.setAttribute("x2", g.x2.toFixed(2)); ln.setAttribute("y2", g.y2.toFixed(2));
+    var len = Math.hypot(g.x2 - g.x1, g.y2 - g.y1);
+    ln.setAttribute("stroke-dasharray", len.toFixed(2));
+    ln.setAttribute("stroke-dashoffset", len.toFixed(2));
+    ln.setAttribute("stroke-opacity", "0");
+    svg.appendChild(ln);
+    lines.push({ el: ln, len: len, at: at, dur: dur, opacity: opacity });
+  }
+  SPOKE_ORDER.forEach(function (key, i) {
+    var n = nodes[key];
+    addLine(edge(hubBox, { x: n.rx, y: n.ry, w: CARD_W, h: CARD_H }),
+            T.spoke.at + i * T.spoke.step, T.spoke.dur, 1);
+  });
+  CHORDS.forEach(function (pair, i) {
+    var a = nodes[pair[0]], b = nodes[pair[1]];
+    addLine(edge({ x: a.rx, y: a.ry, w: CARD_W, h: CARD_H },
+                 { x: b.rx, y: b.ry, w: CARD_W, h: CARD_H }),
+            T.chord.at + i * T.chord.step, T.chord.dur, 0.6);
+  });
+
+  /* ------------------------------------------------------------------ *
+   * render(t) — pure.
+   * ------------------------------------------------------------------ */
+  function render(t) {
+    var focus = eo(seg(t, T.focusIn.at, T.focusIn.dur)) - eo(seg(t, T.focusOut.at, T.focusOut.dur));
+
+    SOURCES.forEach(function (src, i) {
+      var n = nodes[src.key];
+      var appear = eo(seg(t, T.cardIn.at + src.in * T.cardIn.step, T.cardIn.dur));
+      var move = settle(seg(t, T.travel.at + i * T.travel.step, T.travel.dur));
+      var loose = 1 - move;                      /* tilt and drift fade with the same curve */
+
+      var dx = n.d[0] * Math.sin(t / n.d[2] * Math.PI * 2 + n.d[4]) * loose;
+      var dy = n.d[1] * Math.sin(t / n.d[3] * Math.PI * 2 + n.d[5]) * loose;
+
+      var x = lerp(n.sx, n.rx, move) + dx;
+      var y = lerp(n.sy, n.ry, move) + dy + (1 - appear) * 6;
+      var rot = n.rot * loose;
+
+      n.el.style.transform =
+        "translate(" + (x - CARD_W / 2).toFixed(2) + "px," + (y - CARD_H / 2).toFixed(2) + "px)" +
+        (Math.abs(rot) > 0.0005 ? " rotate(" + rot.toFixed(3) + "deg)" : "");
+
+      var dim = src.key === "chat" ? 0 : focus * 0.5;
+      n.el.style.opacity = (appear * (1 - dim)).toFixed(3);
+
+      if (src.key === "chat") {
+        /* the accent, used once: border warms, a faint outer ring, icon and
+           label step up to ink. A whisper of the border stays afterwards. */
+        var trace = 0.28 * eo(seg(t, T.focusIn.at, T.focusIn.dur));
+        var warm = Math.max(focus, trace);
+        n.el.style.borderColor = mix(RULE, ATTN, warm);
+        n.ring.style.opacity = (focus * 0.32).toFixed(3);
+        var c = mix(MUTED, INK, focus);
+        n.icon.style.color = c;
+        n.lbl.style.color = c;
+      }
+    });
+
+    var hubIn = eo(seg(t, T.hubIn.at, T.hubIn.dur));
+    hub.style.opacity = hubIn.toFixed(3);
+    hub.style.transform =
+      "translate(" + (CX - HUB_W / 2) + "px," + (CY - HUB_H / 2 + (1 - hubIn) * 6).toFixed(2) + "px)";
+
+    lines.forEach(function (l) {
+      var p = eo(seg(t, l.at, l.dur));
+      l.el.setAttribute("stroke-dashoffset", (l.len * (1 - p)).toFixed(2));
+      l.el.setAttribute("stroke-opacity", (Math.min(1, p * 3) * l.opacity).toFixed(3));
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Clock
+   * ------------------------------------------------------------------ */
+  window.__introDuration = DURATION;
+  window.__introRender = render;
+
+  function finish() {
+    document.documentElement.dataset.done = "1";
+    window.__introDone = true;
+  }
+
+  var params = new URLSearchParams(location.search);
+  var frozen = params.get("t");
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function start() {
+    if (frozen !== null) {
+      var ft = parseFloat(frozen);
+      render(isFinite(ft) ? Math.max(0, Math.min(ft, DURATION)) : DURATION);
+      finish();
+      return;
+    }
+    if (reduced) { render(DURATION); finish(); return; }
+
+    render(0);
+    var t0 = null;
+    requestAnimationFrame(function step(now) {
+      if (t0 === null) t0 = now;
+      var t = (now - t0) / 1000;
+      if (t >= DURATION) { render(DURATION); finish(); return; }
+      render(t);
+      requestAnimationFrame(step);
+    });
+  }
+
+  /* Start once the webfonts are in, so nothing reflows mid-shot; never hang. */
+  var started = false;
+  function once() { if (!started) { started = true; start(); } }
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(once);
+    setTimeout(once, 1500);
+  } else {
+    once();
+  }
+})();
+</script>
+</body>
+</html>

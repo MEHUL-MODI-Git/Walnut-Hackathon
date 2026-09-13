@@ -50,9 +50,11 @@ a single-process demo service, not a production pharmacy system.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from html import escape as _esc
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from .seed import build_seed
@@ -150,6 +152,208 @@ def _patient_or_404(mrn: str) -> dict[str, Any]:
     if patient is None:
         raise HTTPException(status_code=404, detail=f"no patient {mrn!r}")
     return patient
+
+
+# ---------------------------------------------------------------------------
+# human-facing dispense-queue page
+# ---------------------------------------------------------------------------
+
+_STATUS_SORT_ORDER = {"held": 0, "queued": 1, "dispensed": 2}
+"""Row grouping for the queue page: held rows surface first — they need a human's
+attention — then queued, then dispensed. `not_scheduled` never reaches this map
+because those rows are filtered out before sorting."""
+
+
+def _hold_summary(prescription_id: str) -> str | None:
+    """One display line for every hold currently standing on a prescription, oldest
+    first — the same population `_holds_on` returns for the write path, rendered as
+    text instead of consulted for its effect on `dispense_status`."""
+    holds = _holds_on(prescription_id)
+    if not holds:
+        return None
+    return " · ".join(f"{h['reason']} · placed by {h['placed_by']}" for h in holds)
+
+
+@app.get("/", response_class=HTMLResponse)
+def dispense_queue_page() -> HTMLResponse:
+    """A plain, server-rendered page showing today's dispense queue — the pharmacy's
+    own screen, so a demo can cut to it and show a hold (and the reason Walnut gave
+    for placing it) sitting on the record it was placed against, in the system that
+    actually holds the dose. No JavaScript: this is read once per request, not a
+    live view, and a hospital IT team's internal tool has no reason to ship a
+    client-side framework for a table."""
+    today = _today_iso()
+    rows = [rx for rx in _STATE["prescriptions"].values() if rx.get("dispense_date") == today]
+    rows.sort(
+        key=lambda rx: (
+            _STATUS_SORT_ORDER.get(rx["dispense_status"], 99),
+            rx["prescribed_at"],
+        )
+    )
+
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    row_html: list[str] = []
+    for rx in rows:
+        status = rx["dispense_status"]
+        if status == "held":
+            summary = _hold_summary(rx["id"])
+            reason_html = (
+                f'<div class="hold-reason">{_esc(summary)}</div>' if summary else ""
+            )
+            status_cell = f'<span class="pill pill-held">HELD</span>{reason_html}'
+        elif status == "queued":
+            status_cell = '<span class="pill pill-queued">Queued</span>'
+        elif status == "dispensed":
+            status_cell = '<span class="status-dispensed">Dispensed</span>'
+        else:
+            status_cell = _esc(status)
+
+        row_html.append(
+            f"""
+            <tr class="row-{_esc(status)}">
+              <td>
+                <div class="patient-name">{_esc(rx["patient_name"])}</div>
+                <div class="patient-mrn">{_esc(rx["patient_mrn"])}</div>
+              </td>
+              <td>{_esc(rx["drug"])}</td>
+              <td>{_esc(rx["dose"])}</td>
+              <td>{_esc(rx["prescriber"])}</td>
+              <td>{status_cell}</td>
+            </tr>"""
+        )
+
+    table_body = "".join(row_html) if row_html else (
+        '<tr><td colspan="5" class="empty">Nothing scheduled for today.</td></tr>'
+    )
+
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Meridian Dispensary</title>
+<style>
+  :root {{
+    color-scheme: light;
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0;
+    background: #ffffff;
+    color: #111111;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.4;
+  }}
+  header {{
+    background: #2B4C7E;
+    color: #ffffff;
+    padding: 18px 32px;
+  }}
+  header h1 {{
+    margin: 0 0 4px 0;
+    font-size: 20px;
+    font-weight: 600;
+  }}
+  header .subline {{
+    font-size: 13px;
+    color: #cfd9e8;
+  }}
+  main {{
+    padding: 24px 32px 40px 32px;
+  }}
+  table {{
+    width: 100%;
+    border-collapse: collapse;
+    background: #ffffff;
+  }}
+  thead th {{
+    text-align: left;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #555555;
+    border-bottom: 2px solid #dddddd;
+    padding: 10px 12px;
+  }}
+  tbody td {{
+    padding: 12px;
+    border-bottom: 1px solid #e6e6e6;
+    vertical-align: top;
+  }}
+  tbody tr.row-held {{
+    background: #fdf8f0;
+  }}
+  .patient-name {{
+    font-weight: 600;
+  }}
+  .patient-mrn {{
+    font-size: 12px;
+    color: #666666;
+  }}
+  .pill {{
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }}
+  .pill-held {{
+    background: #f4e2b8;
+    color: #7a4a00;
+    border: 1px solid #e0b25a;
+  }}
+  .pill-queued {{
+    background: #eeeeee;
+    color: #444444;
+    border: 1px solid #d8d8d8;
+  }}
+  .status-dispensed {{
+    color: #888888;
+  }}
+  .hold-reason {{
+    margin-top: 4px;
+    font-size: 12px;
+    color: #6b5a3a;
+    max-width: 32ch;
+  }}
+  .empty {{
+    padding: 24px 12px;
+    color: #666666;
+    text-align: center;
+  }}
+  footer {{
+    padding: 16px 32px 32px 32px;
+    font-size: 12px;
+    color: #888888;
+  }}
+</style>
+</head>
+<body>
+<header>
+  <h1>Meridian Dispensary</h1>
+  <div class="subline">Today's dispense queue &middot; Riverside &middot; {_esc(generated_at)}</div>
+</header>
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th>Patient</th>
+        <th>Drug</th>
+        <th>Dose</th>
+        <th>Prescriber</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>{table_body}
+    </tbody>
+  </table>
+</main>
+<footer>Meridian Dispensary internal system &middot; not for external distribution</footer>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html)
 
 
 # ---------------------------------------------------------------------------

@@ -35,6 +35,7 @@ from enum import IntEnum
 from typing import Any, Protocol, runtime_checkable
 
 __all__ = [
+    "AGENT_SIGNATURE",
     "Action",
     "ActionCapabilities",
     "ActionReceipt",
@@ -156,6 +157,20 @@ class SourceProfile:
 # ---------------------------------------------------------------------------
 # Write side
 # ---------------------------------------------------------------------------
+
+
+AGENT_SIGNATURE = "Filed by Walnut"
+"""Every record the agent writes into an external system carries this line.
+
+The reason is a loop that showed up the first time a live system was connected: the
+agent filed a Linear issue titled "…slack reports it", the next ingest read that
+issue back as a fresh claim about the patient, the contradiction detector ranked it
+above the nurse's message it was summarising, and the next issue the agent filed said
+"…linear reports it" — the agent citing itself, one hop further from the evidence on
+every pass. Signed writes are recognisable as derivative, and derivative records are
+never evidence: they can be shown, linked and undone, but nothing is inferred from
+them.
+"""
 
 
 class ActionTier(IntEnum):

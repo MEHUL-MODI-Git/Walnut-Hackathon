@@ -254,8 +254,30 @@ def _results_block(results: list[Any]) -> str:
                              r.reason.value, kind="stop"))
         else:
             dotted = f"{r.action.app}.{r.action.operation}"
-            out.append(rail(f"done · {dotted}", r.action_id, kind="ok"))
+            out.append(rail(f"done · {dotted}", _landed_at(r) or r.action_id, kind="ok"))
     return "".join(out)
+
+
+def _landed_at(receipt: ActionReceipt) -> str:
+    """The record this write became, in the words of the system that took it.
+
+    "done · linear.create_issue" says Walnut believes it wrote something. A live
+    adapter's receipt says what: the issue's own identifier and URL, as the API
+    returned them. Showing that turns the line from an assertion into something a
+    reader can go and check — which is the only kind of "done" this product should
+    be in the business of reporting. Fixture receipts carry no URL and fall back to
+    the action id as before.
+    """
+    result = receipt.result or {}
+    for key in ("issue", "comment", "page", "message", "record"):
+        inner = result.get(key)
+        if isinstance(inner, dict):
+            url = inner.get("url") or inner.get("permalink")
+            ident = inner.get("identifier") or inner.get("id") or ""
+            if url:
+                return f"{ident} · {url}".strip(" ·")
+    url = result.get("url") or result.get("permalink")
+    return f"{result.get('identifier') or ''} · {url}".strip(" ·") if url else ""
 
 
 def _undo_cell(receipt: ActionReceipt) -> str:

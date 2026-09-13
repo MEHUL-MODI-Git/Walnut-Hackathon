@@ -64,6 +64,12 @@ WORDS_PER_SECOND = 2.6
 # constant rather than re-derived, because this script must not import the recorder.
 BEAT_TOTAL = 89.81
 
+# ffmpeg's atempo filter only accepts a factor in this range per instance. Chaining two
+# (each the square root of the target) reaches [0.25, 4.0] — far past any speed a demo
+# narration would ever ask for — without ever exceeding what a single instance allows.
+ATEMPO_MIN = 0.5
+ATEMPO_MAX = 2.0
+
 
 def die(msg: str) -> None:
     print(f"\n  {msg}\n", file=sys.stderr)
@@ -235,15 +241,27 @@ def placeholder(path: Path, seconds: float) -> None:
          "-c:a", "libmp3lame", "-q:a", "4", str(path)])
 
 
-def retempo(src: Path, dst: Path, tempo: float) -> None:
-    """Speed a segment up slightly so it fits its beat, without changing its pitch.
+def tempo_filter(factor: float) -> str:
+    """Build the ffmpeg -filter:a string for speeding audio up by `factor`.
 
-    Used only to absorb a small overrun. Anything past ~1.2× stops sounding like a
-    person reading and starts sounding like a person who has been told they are over
-    time, so the caller caps it and warns rather than compressing harder.
+    A single atempo instance only covers [0.5, 2.0]; outside that, split into two
+    instances each set to sqrt(factor), which multiply back out to the target exactly.
+    """
+    if ATEMPO_MIN <= factor <= ATEMPO_MAX:
+        return f"atempo={factor:.4f}"
+    half = factor ** 0.5
+    return f"atempo={half:.4f},atempo={half:.4f}"
+
+
+def retempo(src: Path, dst: Path, tempo: float) -> None:
+    """Speed audio up by `tempo`, pitch-preserved.
+
+    Shared by --tempo (a blanket speedup applied to every segment, to stretch limited
+    ElevenLabs credits a little further without re-synthesising) and --max-tempo (which
+    absorbs a small overrun by compressing just the segments that need it).
     """
     run([ffmpeg(), "-y", "-v", "error", "-i", str(src),
-         "-filter:a", f"atempo={tempo:.4f}", "-c:a", "libmp3lame", "-q:a", "4", str(dst)])
+         "-filter:a", tempo_filter(tempo), "-c:a", "libmp3lame", "-q:a", "4", str(dst)])
 
 
 # --------------------------------------------------------------------------- main
@@ -266,8 +284,20 @@ def main() -> int:
                          "real video's duration (speech is never stretched)")
     ap.add_argument("--max-tempo", type=float, default=1.15,
                     help="speed a segment up by at most this to fit its slot (1.0 = off)")
+    ap.add_argument("--tempo", type=float, default=1.0,
+                    help="speed up every segment's audio by this factor (pitch-preserved) "
+                         "before placing it on the timeline; 1.0 = off. This never touches "
+                         "the cached synthesis — ElevenLabs credits are precious — it "
+                         "derives a separate sped-up file alongside it, so trying a "
+                         "different --tempo later still costs zero credits")
     ap.add_argument("--force", action="store_true", help="ignore the cache, re-synthesise")
     args = ap.parse_args()
+
+    # Two chained atempo instances reach [0.25, 4.0]; beyond that ffmpeg has no way to
+    # honour the request, so fail before touching any audio rather than mid-run.
+    if not (ATEMPO_MIN ** 2 <= args.tempo <= ATEMPO_MAX ** 2):
+        die(f"--tempo {args.tempo} is out of range: ffmpeg's atempo filter, chained "
+            f"twice, only reaches {ATEMPO_MIN ** 2:.2f}-{ATEMPO_MAX ** 2:.2f}")
 
     key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
     if not args.dry_run and not key:
@@ -334,20 +364,40 @@ def main() -> int:
             else:
                 cached.write_bytes(synth(text, args.voice, key))
             state = "synthesised"
-            # Drop stale cache entries for this segment so the directory reflects the
-            # current script rather than accumulating every draft of it.
-            for old in cache_dir.glob(f"{seg.number}-*.mp3"):
-                if old != cached:
-                    old.unlink()
+            # No cleanup of other drafts. The version of this loop that deleted every
+            # other file for the segment number ran during a dry-run and destroyed the
+            # PAID synthesis for ten segments, because a dry-run placeholder and a real
+            # recording share a number and differ only in their key. A stale draft in
+            # the cache costs a few kilobytes; a deleted one costs credits that cannot
+            # be got back. Keep everything; the digest in the filename already says
+            # which file belongs to which words.
 
         length = duration_of(cached)
         source = cached
 
-        if args.max_tempo > 1.0 and length > slot + 0.05:
-            tempo = min(args.max_tempo, length / slot)
-            sped = cache_dir / f"{seg.number}-{digest}-x{tempo:.3f}.mp3"
+        if args.tempo != 1.0:
+            # A separate derived path, never the cached synthesis itself: re-synthesising
+            # costs ElevenLabs credits and this doesn't, so the original stays untouched
+            # and a different --tempo can be tried again for free. Keyed to the nearest
+            # percent — stray thousandths of a tempo factor aren't a deliberate choice.
+            pct = round(args.tempo * 100)
+            sped = cache_dir / f"{seg.number}-{digest}.t{pct}.mp3"
             if not sped.exists() or args.force:
-                retempo(cached, sped, tempo)
+                retempo(cached, sped, args.tempo)
+            source, length = sped, duration_of(sped)
+            state += f", tempo×{args.tempo:.2f}"
+
+        if args.max_tempo > 1.0 and length > slot + 0.05:
+            # `length` already reflects --tempo above, so this compresses the *already
+            # sped-up* source by the remaining amount needed to fit the slot — not the
+            # original synthesis a second time. The filename says so (".tNNN" prefix)
+            # once --tempo is in play, so it can never be confused with — or accidentally
+            # reused as — a plain overrun file derived straight from the original take.
+            tempo = min(args.max_tempo, length / slot)
+            infix = f".t{pct}" if args.tempo != 1.0 else ""
+            sped = cache_dir / f"{seg.number}-{digest}{infix}-x{tempo:.3f}.mp3"
+            if not sped.exists() or args.force:
+                retempo(source, sped, tempo)
             source, length = sped, duration_of(sped)
             state += f", ×{tempo:.2f}"
 

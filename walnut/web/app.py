@@ -327,18 +327,6 @@ def disconnect(app_name: str) -> RedirectResponse:
 # -- investigate ------------------------------------------------------------
 
 
-@app.get("/investigate", response_class=HTMLResponse)
-def investigate_get() -> HTMLResponse:
-    state.ensure()
-    return html(
-        views.page_investigate(
-            state.last_question, state.last_answer,
-            detect_contradictions(state.brain), state.last_results, state.last_intent,
-        ),
-        "Investigate", "inv",
-    )
-
-
 @app.post("/investigate")
 def investigate_post(question: str = Form("")) -> RedirectResponse:
     agent = state.ensure()
@@ -347,6 +335,28 @@ def investigate_post(question: str = Form("")) -> RedirectResponse:
     state.last_answer = inv.answer
     state.last_results = []
     return back("/investigate")
+
+
+def _creation_context() -> dict[str, Any]:
+    """Where a CREATED record should go — the one thing no locator can carry.
+
+    A reply threads under the message it cites and a comment lands on its issue,
+    but a new issue has no existing record to aim at: it needs a team, a new page
+    needs a database, a new GitHub issue needs a repo. Against fixtures the planner's
+    fallback id worked; against a live Linear the adapter raised KeyError for the
+    missing team, after three other systems had already been written to. Read from
+    the environment the operator already filled in for the connection itself.
+    """
+    import os
+
+    context: dict[str, Any] = {}
+    if team := os.environ.get("LINEAR_TEAM_ID", ""):
+        context["team_id"] = team
+    if database := os.environ.get("NOTION_DATABASE_ID", ""):
+        context["database_id"] = database
+    if repo := os.environ.get("GITHUB_REPO", ""):
+        context["repo"] = repo
+    return context
 
 
 @app.post("/act")
@@ -366,7 +376,8 @@ def act(conflict_id: str = Form("")) -> RedirectResponse:
         return back("/investigate")
 
     conflict = conflicts[0]
-    plan = build_plan(conflict, state.brain, adapters=state.all_adapters())
+    plan = build_plan(conflict, state.brain, adapters=state.all_adapters(),
+                      context=_creation_context())
     state.last_results = agent.execute_all(agent.propose_for_conflict(conflict, plan))
     return back("/investigate")
 

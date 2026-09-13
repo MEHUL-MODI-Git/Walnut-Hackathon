@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from .brain import Brain, Fact
+from .contract import AGENT_SIGNATURE
 
 __all__ = ["Claim", "ClaimStatus", "Conflict", "detect_contradictions", "extract_subjects"]
 
@@ -385,6 +386,11 @@ def detect_contradictions(
     """
     claims: dict[str, list[Claim]] = {}
     for fact in brain._facts.values():  # noqa: SLF001 - Brain owns this index
+        # The agent's own writes, read back from the systems it wrote them into, are
+        # not evidence — they are a summary of evidence, and treating them as claims
+        # made the agent cite itself one hop further from the source on every pass.
+        if AGENT_SIGNATURE in fact.text:
+            continue
         status = classify(fact.text)
         if status is ClaimStatus.UNKNOWN:
             continue

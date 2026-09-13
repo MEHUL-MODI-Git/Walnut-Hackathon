@@ -680,3 +680,44 @@ def test_a_conflict_quotes_the_clause_not_the_whole_record():
     other = conflict.right if absent is conflict.left else conflict.left
     assert not other.quote().lower().startswith("text:")
     assert "amoxicillin" in other.quote()
+
+
+def test_the_agent_never_cites_its_own_writes_as_evidence():
+    """P0, found on camera the first time a live system was connected.
+
+    The agent filed a Linear issue summarising the allergy contradiction. The next
+    ingest read that issue back, the detector classified its title ("…slack reports
+    it") as a fresh PRESENT claim from Linear, ranked it above the nurse's message it
+    was summarising, and the next issue the agent filed read "…linear reports it".
+    Every pass moved the citation one hop further from the evidence.
+
+    A signed write is derivative. It may be shown and undone; it is never a claim.
+    """
+    from datetime import datetime, timezone
+
+    from walnut.contract import AGENT_SIGNATURE, Evidence, SourcePointer
+    from walnut.contradiction import detect_contradictions
+
+    def ev(app, ident, text):
+        return Evidence(
+            id=ident, text=text, author="someone",
+            occurred_at=datetime(2026, 9, 1, tzinfo=timezone.utc),
+            pointer=SourcePointer(
+                app=app, resource_uri=f"https://{app}.example/{ident}",
+                content_hash="a" * 64, retrieved_at=datetime.now(timezone.utc),
+                locator={"id": ident}),
+        )
+
+    b = Brain()
+    b.remember(ev("ehr", "MR-9001", "MR-9001 Test Patient Allergies: none recorded"))
+    b.remember(ev("slack", "s1", "MR-9001 she reports a rash after amoxicillin"))
+    # What the agent filed about that, read back from Linear on the next ingest.
+    b.remember(ev("linear", "MEH-99",
+                  f"Reconcile MR-9001: ehr holds nothing on this; slack reports it\n\n"
+                  f"{AGENT_SIGNATURE} — from evidence in ehr and slack."))
+
+    conflicts = [c for c in detect_contradictions(b) if c.subject == "MR-9001"]
+    assert len(conflicts) == 1, [c.apps for c in conflicts]
+    assert set(conflicts[0].apps) == {"ehr", "slack"}, (
+        "the agent's own Linear issue was read back as evidence"
+    )

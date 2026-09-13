@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Walnut — intro</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FBFAF7;
+  --surface:#FFFFFF;
+  --ink:#1A1D1A;
+  --muted:#63675F;
+  --rule:#E4E1D9;
+  --walnut:#7A4B2A;
+  --attention:#9A6A17;
+  --link:#C8C0B0;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1280px;height:800px;overflow:hidden}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font:400 14px/1.6 "IBM Plex Sans",ui-sans-serif,-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+.stage{position:relative;width:1280px;height:800px}
+
+/* ---- links ---- */
+svg.links{position:absolute;inset:0;width:1280px;height:800px;pointer-events:none}
+svg.links line{
+  stroke:var(--link);
+  stroke-width:1;
+  shape-rendering:geometricPrecision;
+}
+
+/* ---- source node ---- */
+.node{
+  position:absolute;top:0;left:0;
+  width:312px;height:96px;
+  display:flex;flex-direction:column;justify-content:center;
+  padding:14px 16px;
+  background:var(--surface);
+  border:1px solid var(--rule);
+  border-radius:5px;
+  transform-origin:50% 50%;
+  will-change:transform,opacity;
+}
+.node .head{
+  display:flex;align-items:center;gap:9px;
+  height:21px;
+}
+.node .ico{
+  display:block;width:21px;height:21px;flex:0 0 21px;
+  color:var(--muted);
+}
+.node .ico svg{display:block}
+.node .lbl{
+  font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);
+  line-height:1;
+}
+.node .txt{
+  font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  font-size:12px;font-weight:400;line-height:1.55;letter-spacing:-.005em;
+  color:rgba(26,29,26,.85);
+  margin-top:9px;
+}
+.ring{
+  position:absolute;
+  inset:-6px;
+  border:1px solid var(--attention);
+  border-radius:10px;
+  opacity:0;
+}
+
+/* ---- centre ---- */
+.hub{
+  position:absolute;top:0;left:0;
+  width:208px;height:106px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:var(--surface);
+  border:1.5px solid var(--walnut);
+  border-radius:6px;
+  opacity:0;
+}
+.hub .mark{display:block;width:22px;height:22px;color:var(--walnut)}
+.hub b{
+  margin-top:10px;
+  font-size:19px;font-weight:600;letter-spacing:-.012em;color:var(--walnut);
+  line-height:1;
+}
+.hub span{
+  margin-top:9px;
+  font-size:9.5px;font-weight:500;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--muted);
+  line-height:1;
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <svg class="links" id="links" viewBox="0 0 1280 800" width="1280" height="800" aria-hidden="true"></svg>
+  <div class="hub" id="hub">
+    <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 4 18.93 8v8L12 20l-6.93-4V8z" opacity=".5"/>
+      <path d="M12 4v16" opacity=".5"/>
+      <circle cx="12" cy="4" r="1.9" fill="currentColor" stroke="none"/>
+      <circle cx="18.93" cy="8" r="1.9" fill="currentColor" stroke="none"/>
+      <circle cx="18.93" cy="16" r="1.9" fill="currentColor" stroke="none"/>
+      <circle cx="12" cy="20" r="1.9" fill="currentColor" stroke="none"/>
+      <circle cx="5.07" cy="16" r="1.9" fill="currentColor" stroke="none"/>
+      <circle cx="5.07" cy="8" r="1.9" fill="currentColor" stroke="none"/>
+    </svg>
+    <b>Walnut</b><span>company brain</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ------------------------------------------------------------------ *
+   * Timeline. One clock, one pure render(t) — so every run is identical
+   * and `?t=12.5` renders exactly the frame the recorder would see.
+   * ------------------------------------------------------------------ */
+  var DURATION = 20.0;
+
+  var CARD_W = 312, CARD_H = 96;
+  var HUB_W = 208, HUB_H = 106;
+  var CX = 640, CY = 400;
+  var RX = 406, RY = 248;
+
+  /* One icon family: 24-unit box, 1.5 stroke, round joins, ~18 units wide,
+     drawn to sit on the same optical size as one another. */
+  var ICONS = {
+    mail:
+      '<rect x="3" y="5" width="18" height="14" rx="2"/>' +
+      '<path d="M3.6 7 12 12.9 20.4 7"/>',
+    doc:
+      '<path d="M14.2 3H6.5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V8.3z"/>' +
+      '<path d="M14.2 3v5.3h5.3"/><path d="M8 13.2h8"/><path d="M8 16.9h5"/>',
+    chat:
+      '<path d="M21 14.5a2 2 0 0 1-2 2H8l-5 4.5V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>' +
+      '<path d="M7.5 8h9"/><path d="M7.5 11.6h5.5"/>',
+    db:
+      '<ellipse cx="12" cy="5.5" rx="9" ry="3"/>' +
+      '<path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3"/>' +
+      '<path d="M3 5.5v13c0 1.66 4.03 3 9 3s9-1.34 9-3v-13"/>',
+    flask:
+      '<path d="M10 3v6.6a2 2 0 0 1-.29 1.04l-5.2 8.5A1.8 1.8 0 0 0 6.04 21h11.92a1.8 1.8 0 0 0 1.53-2.86l-5.2-8.5A2 2 0 0 1 14 8.6V3"/>' +
+      '<path d="M8.6 3h6.8"/><path d="M7.1 15.5h9.8"/>',
+    pill:
+      '<rect x="2.6" y="7.4" width="18.8" height="9.2" rx="4.6" ' +
+        'transform="rotate(-45 12 12)"/>' +
+      '<path d="M8.75 8.75 15.25 15.25"/>'
+  };
+
+  /* Six fragments. `a` is the final angle on the ring (0deg = due east,
+     counter-clockwise); `s` is where it sits while scattered; `in` is the
+     order it arrives in — chosen so the frame fills evenly, not top-down;
+     `rot` is the degree or so of tilt it carries while it is still a loose
+     fragment, and loses exactly when it becomes a node. */
+  var SOURCES = [
+    { key: "email",    label: "Email",           icon: "mail",
+      txt: "referral: ?penicillin reaction, 2019",
+      a: 120, s: [336, 128], in: 0, rot: -1.5 },
+    { key: "docs",     label: "Documents",       icon: "doc",
+      txt: "discharge summary p.3 — allergies",
+      a:  60, s: [748, 104], in: 2, rot:  1.2 },
+    { key: "chat",     label: "Chat",            icon: "chat",
+      txt: "“she came out in a rash after amoxicillin”",
+      a:   0, s: [1046, 292], in: 4, rot: -0.9 },
+    { key: "pharmacy", label: "Pharmacy system", icon: "pill",
+      txt: "co-amoxiclav · queued today",
+      a: 300, s: [898, 596], in: 1, rot:  1.5 },
+    { key: "labs",     label: "Lab results",     icon: "flask",
+      txt: "eGFR 54 · flagged 3 days ago",
+      a: 240, s: [444, 682], in: 5, rot: -1.3 },
+    { key: "db",       label: "Database",        icon: "db",
+      txt: "Allergies: none recorded",
+      a: 180, s: [238, 462], in: 3, rot:  0.8 }
+  ];
+
+  /* Ring order, clockwise from upper-left, for staggering the spokes. */
+  var SPOKE_ORDER = ["email", "docs", "chat", "pharmacy", "labs", "db"];
+  /* Two chords, so the finish reads as a graph rather than a fan. */
+  var CHORDS = [["chat", "pharmacy"], ["db", "labs"]];
+
+  var T = {
+    cardIn:    { at: 0.40, step: 0.50, dur: 0.85 },
+    focusIn:   { at: 8.10, dur: 0.80 },
+    focusOut:  { at: 12.30, dur: 0.80 },
+    travel:    { at: 13.20, step: 0.10, dur: 2.00 },
+    stillFrom: 12.80, stillTo: 14.20,   /* drift eases to nothing */
+    warm:      { at: 13.20, dur: 2.20 },
+    hubIn:     { at: 14.30, dur: 0.80 },
+    spoke:     { at: 14.55, step: 0.15, dur: 0.80 },
+    chord:     { at: 16.30, step: 0.20, dur: 0.70 }
+  };
+
+  /* ---- easing + helpers ---- */
+  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function seg(t, t0, dur) { return clamp01((t - t0) / dur); }
+  function eo(p) { var u = 1 - p; return 1 - u * u * u; }        /* ease-out cubic */
+  function settle(p) { var u = 1 - p; u *= u; return 1 - u * u; } /* ease-out quart:
+     the last 15% of the distance takes 62% of the time, so a move arrives by
+     decelerating into place rather than stopping. Monotonic — no overshoot. */
+  function lerp(a, b, p) { return a + (b - a) * p; }
+  function mix(from, to, p) {
+    return "rgb(" + [0, 1, 2].map(function (i) {
+      return Math.round(lerp(from[i], to[i], p));
+    }).join(",") + ")";
+  }
+
+  var RULE = [228, 225, 217], ATTN = [154, 106, 23];
+  var MUTED = [99, 103, 95], INK = [26, 29, 26];
+
+  /* ---- geometry ---- */
+  function ringPos(deg) {
+    var r = deg * Math.PI / 180;
+    return [CX + RX * Math.cos(r), CY - RY * Math.sin(r)];
+  }
+
+  /* Where the line joining two box centres leaves the first box, plus a gap.
+     Clipping at the box means a line can never run under a label. */
+  function exit(cx, cy, w, h, dx, dy, gap) {
+    var hw = w / 2, hh = h / 2;
+    var tx = Math.abs(dx) < 1e-6 ? Infinity : hw / Math.abs(dx);
+    var ty = Math.abs(dy) < 1e-6 ? Infinity : hh / Math.abs(dy);
+    var t = Math.min(tx, ty);
+    var len = Math.hypot(dx, dy);
+    return [cx + dx * t + (dx / len) * gap, cy + dy * t + (dy / len) * gap];
+  }
+
+  function edge(from, to, gap) {
+    var dx = to.x - from.x, dy = to.y - from.y;
+    var a = exit(from.x, from.y, from.w, from.h, dx, dy, gap);
+    var b = exit(to.x, to.y, to.w, to.h, -dx, -dy, gap);
+    return { x1: a[0], y1: a[1], x2: b[0], y2: b[1] };
+  }
+
+  /* ---- build ---- */
+  var stage = document.getElementById("stage");
+  var svg = document.getElementById("links");
+  var hub = document.getElementById("hub");
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  function iconSVG(name) {
+    return '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" ' +
+           'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ' +
+           'stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + '</svg>';
+  }
+
+  var nodes = {};
+  SOURCES.forEach(function (src, i) {
+    var el = document.createElement("article");
+    el.className = "node";
+
+    var head = document.createElement("div");
+    head.className = "head";
+    var ico = document.createElement("span");
+    ico.className = "ico";
+    ico.innerHTML = iconSVG(src.icon);
+    var lbl = document.createElement("div");
+    lbl.className = "lbl";
+    lbl.textContent = src.label;
+    head.appendChild(ico);
+    head.appendChild(lbl);
+
+    var txt = document.createElement("div");
+    txt.className = "txt";
+    txt.textContent = src.txt;
+
+    el.appendChild(head);
+    el.appendChild(txt);
+
+    var ring = null;
+    if (src.key === "chat") {
+      ring = document.createElement("div");
+      ring.className = "ring";
+      el.appendChild(ring);
+    }
+    stage.appendChild(el);
+
+    var r = ringPos(src.a);
+    nodes[src.key] = {
+      el: el, ico: ico, ring: ring, index: i,
+      sx: src.s[0], sy: src.s[1], rot: src.rot,
+      rx: r[0], ry: r[1],
+      /* drift: two slow, mutually prime periods so nothing visibly loops */
+      d: [3.5 + (i % 3), 2.5 + (i % 2), 7.3 + i * 1.7, 9.1 + i * 1.3, i * 1.11, i * 0.73]
+    };
+  });
+
+  var hubBox = { x: CX, y: CY, w: HUB_W, h: HUB_H };
+
+  /* Spokes and chords, geometry fixed from the settled ring positions.
+     Each spoke is written hub-end first, so the dash draws outward. */
+  var lines = [];
+  function addLine(g, opacity, at, dur) {
+    var ln = document.createElementNS(SVGNS, "line");
+    ln.setAttribute("x1", g.x1.toFixed(2));
+    ln.setAttribute("y1", g.y1.toFixed(2));
+    ln.setAttribute("x2", g.x2.toFixed(2));
+    ln.setAttribute("y2", g.y2.toFixed(2));
+    var len = Math.hypot(g.x2 - g.x1, g.y2 - g.y1);
+    ln.setAttribute("stroke-dasharray", len.toFixed(2));
+    ln.setAttribute("stroke-dashoffset", len.toFixed(2));
+    svg.appendChild(ln);
+    lines.push({ el: ln, len: len, opacity: opacity, at: at, dur: dur });
+  }
+
+  SPOKE_ORDER.forEach(function (key, i) {
+    var n = nodes[key];
+    addLine(edge(hubBox, { x: n.rx, y: n.ry, w: CARD_W, h: CARD_H }, 12),
+            1, T.spoke.at + i * T.spoke.step, T.spoke.dur);
+  });
+
+  CHORDS.forEach(function (pair, i) {
+    var a = nodes[pair[0]], b = nodes[pair[1]];
+    addLine(edge({ x: a.rx, y: a.ry, w: CARD_W, h: CARD_H },
+                 { x: b.rx, y: b.ry, w: CARD_W, h: CARD_H }, 12),
+            0.62, T.chord.at + i * T.chord.step, T.chord.dur);
+  });
+
+  /* ------------------------------------------------------------------ *
+   * render(t) — pure. Nothing outside this reads the clock.
+   * ------------------------------------------------------------------ */
+  function render(t) {
+    /* drift amplitude: full until the sources begin to gather, then nothing */
+    var still = 1 - eo(seg(t, T.stillFrom, T.stillTo - T.stillFrom));
+
+    var focus = eo(seg(t, T.focusIn.at, T.focusIn.dur))
+              - eo(seg(t, T.focusOut.at, T.focusOut.dur));
+    var warm = eo(seg(t, T.warm.at, T.warm.dur));   /* icons darken as it forms */
+
+    SOURCES.forEach(function (src, i) {
+      var n = nodes[src.key];
+
+      var appear = eo(seg(t, T.cardIn.at + src.in * T.cardIn.step, T.cardIn.dur));
+      var move = settle(seg(t, T.travel.at + i * T.travel.step, T.travel.dur));
+
+      var dx = n.d[0] * Math.sin(t / n.d[2] * Math.PI * 2 + n.d[4]) * still;
+      var dy = n.d[1] * Math.sin(t / n.d[3] * Math.PI * 2 + n.d[5]) * still;
+
+      var x = lerp(n.sx, n.rx, move) + dx;
+      var y = lerp(n.sy, n.ry, move) + dy + (1 - appear) * 6;
+      var rot = n.rot * (1 - move);
+
+      n.el.style.transform =
+        "translate(" + (x - CARD_W / 2).toFixed(2) + "px," + (y - CARD_H / 2).toFixed(2) + "px)" +
+        " rotate(" + rot.toFixed(3) + "deg)";
+
+      var dim = src.key === "chat" ? 0 : focus * 0.48;
+      n.el.style.opacity = (appear * (1 - dim)).toFixed(3);
+
+      var lit = warm;
+      if (src.key === "chat") {
+        lit = Math.max(warm, focus);
+        /* used once, softly: a warmer border, and a whisper of it kept after */
+        var b = Math.max(focus, 0.22 * eo(seg(t, T.focusIn.at, T.focusIn.dur)));
+        n.el.style.borderColor = mix(RULE, ATTN, b * 0.75);
+        n.ring.style.opacity = (focus * 0.30).toFixed(3);
+        n.ring.style.borderColor = "rgba(154,106,23,.55)";
+      }
+      n.ico.style.color = mix(MUTED, INK, lit);
+    });
+
+    var hubIn = eo(seg(t, T.hubIn.at, T.hubIn.dur));
+    hub.style.opacity = hubIn.toFixed(3);
+    hub.style.transform =
+      "translate(" + (CX - HUB_W / 2) + "px," + (CY - HUB_H / 2 + (1 - hubIn) * 6).toFixed(2) + "px)";
+
+    lines.forEach(function (l) {
+      var p = eo(seg(t, l.at, l.dur));
+      l.el.setAttribute("stroke-dashoffset", (l.len * (1 - p)).toFixed(2));
+      l.el.setAttribute("stroke-opacity", (p * l.opacity).toFixed(3));
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Clock
+   * ------------------------------------------------------------------ */
+  window.__introDuration = DURATION;
+  window.__introRender = render;
+
+  function finish() {
+    document.documentElement.dataset.done = "1";
+    window.__introDone = true;
+  }
+
+  var params = new URLSearchParams(location.search);
+  var frozen = params.get("t");
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function start() {
+    if (frozen !== null) {                 /* deterministic single frame */
+      render(Math.min(parseFloat(frozen), DURATION));
+      finish();
+      return;
+    }
+    if (reduced) {                          /* straight to the final frame */
+      render(DURATION);
+      finish();
+      return;
+    }
+    render(0);
+    var t0 = null;
+    requestAnimationFrame(function step(now) {
+      if (t0 === null) t0 = now;
+      var t = (now - t0) / 1000;
+      if (t >= DURATION) { render(DURATION); finish(); return; }
+      render(t);
+      requestAnimationFrame(step);
+    });
+  }
+
+  /* Wait for the webfonts so no card reflows mid-shot; never hang on it. */
+  var started = false;
+  function once() { if (!started) { started = true; start(); } }
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(once);
+    setTimeout(once, 1500);
+  } else {
+    once();
+  }
+})();
+</script>
+</body>
+</html>

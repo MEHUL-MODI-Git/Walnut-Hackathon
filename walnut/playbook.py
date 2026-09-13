@@ -18,6 +18,7 @@ import hashlib
 from typing import Any
 
 from .brain import Brain, Fact
+from .contract import AGENT_SIGNATURE
 from .contradiction import ClaimStatus, Conflict
 from .targeting import target_for
 
@@ -161,7 +162,13 @@ def build_plan(
         # Fixtures address records by id; a live Linear needs a team id, which no
         # locator can carry because it is a property of the connection, not the record.
         "target": linear_target or {"id": f"WALNUT-{slug}"},
-        "payload": {"title": says["title"], "state": "Todo"},
+        "payload": {
+            "title": says["title"],
+            "state": "Todo",
+            "description": (f"{AGENT_SIGNATURE} — from evidence in "
+                            f"{conflict.left.fact.app} and {conflict.right.fact.app}. "
+                            f"{conflict.left.fact.cite()} · {conflict.right.fact.cite()}"),
+        },
         "rationale": "File the contradiction as tracked work, carrying its evidence chain.",
     })
 
@@ -178,7 +185,7 @@ def build_plan(
         steps.append({
             "app": "slack", "operation": "post_reply",
             "target": target_for("slack", "post_reply", [sl], context=context) or {},
-            "payload": {"text": says["reply"]},
+            "payload": {"text": f"{says['reply']}\n— {AGENT_SIGNATURE}"},
             "rationale": "Close the loop with whoever raised it.",
         })
 
@@ -208,7 +215,7 @@ def build_plan(
             "target": {"id": rx_id},
             "payload": {
                 "prescription_id": rx_id,
-                "reason": f"Walnut: contradiction on {subject} — "
+                "reason": f"{AGENT_SIGNATURE}: contradiction on {subject} — "
                           f"{conflict.left.fact.app} and {conflict.right.fact.app} "
                           f"disagree. Verify before dispensing.",
                 "placed_by": "walnut",
@@ -221,7 +228,8 @@ def build_plan(
         steps.append({
             "app": "email", "operation": "send_email",
             "target": target_for("email", "send_email", [em], context=context) or {},
-            "payload": {"subject": says["email_subject"], "body": says["email_body"]},
+            "payload": {"subject": says["email_subject"],
+                        "body": f"{says['email_body']}\n\n— {AGENT_SIGNATURE}"},
             "rationale": ("Put the question to the clinician who referred her. It "
                           "leaves the organisation, so a human sends it, not the agent."),
         })

@@ -25,16 +25,19 @@ NARRATION = ROOT / "demo" / "narration.md"
 
 # segment number -> the beat it speaks over. Order is the running order.
 SEGMENTS: tuple[tuple[str, str], ...] = (
-    ("01", "connectors"),
-    ("02", "typed"),
-    ("03", "briefing"),
-    ("04", "citation"),
-    ("05", "contradiction"),
-    ("06", "coverage"),
-    ("07", "conflicts"),
-    ("08", "acted"),
-    ("09", "approvals"),
-    ("10", "audit"),
+    ("01", "intro"),
+    ("02", "connectors"),
+    ("03", "typed"),
+    ("04", "briefing"),
+    ("05", "citation"),
+    ("06", "contradiction"),
+    ("07", "coverage"),
+    ("08", "conflicts"),
+    ("09", "acted"),
+    ("10", "linear"),
+    ("11", "dispensary"),
+    ("12", "approvals"),
+    ("13", "audit"),
 )
 # The title and closing cards are deliberately silent: a card is read, not narrated,
 # and a voice over it is one thing too many.

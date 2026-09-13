@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import os
 import shutil
 import socket
 import subprocess
@@ -65,11 +66,36 @@ def _free(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) != 0
 
 
-def _spawn(module: str, port: int) -> subprocess.Popen:
+# Which apps the take connects live. Linear, and only Linear: its workspace is
+# empty apart from what the agent creates, so going live costs the corpus nothing
+# and buys a real issue in Linear's own interface. Notion live would REPLACE the
+# clinic's visit notes with whatever one page the integration can see, and then the
+# agent would write to that page. The rest of the story runs on seeded data, and the
+# narration says so.
+LIVE = ("LINEAR_API_KEY", "LINEAR_TEAM_ID", "DISPENSARY_URL")
+
+
+def _dotenv() -> dict[str, str]:
+    """`.env`, parsed — because nothing else in this repo reads it — filtered to LIVE."""
+    env = dict(os.environ)
+    path = ROOT / ".env"
+    if not path.exists():
+        return env
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip() in LIVE:
+            env.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+    return env
+
+
+def _spawn(module: str, port: int, *, env: dict[str, str] | None = None) -> subprocess.Popen:
     return subprocess.Popen(
         [sys.executable, "-m", "uvicorn", module, "--port", str(port),
          "--log-level", "error"],
-        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env,
     )
 
 
@@ -167,7 +193,7 @@ def serve():
         _await(DISPENSARY_PORT, "the dispensary service",
                f"http://127.0.0.1:{DISPENSARY_PORT}/healthz")
         _reset_dispensary()
-        web = _spawn("walnut.web.app:app", PORT)
+        web = _spawn("walnut.web.app:app", PORT, env=_dotenv())
         try:
             _await(PORT, "the app")
             _warm()
@@ -315,12 +341,29 @@ def record(fast: bool = False) -> Path:
     OUT.mkdir(parents=True)
 
     with serve(), sync_playwright() as pw:
-        browser = pw.chromium.launch()
+        # Real Chrome with the automation signal removed, so the saved Linear session
+        # is accepted on load rather than met with "we were unable to verify it's
+        # you". Falls back to the bundled Chromium where Chrome is not installed.
+        launch = dict(args=["--disable-blink-features=AutomationControlled"],
+                      ignore_default_args=["--enable-automation"])
+        try:
+            browser = pw.chromium.launch(channel="chrome", **launch)
+        except Exception:  # noqa: BLE001 - no Chrome on this machine
+            browser = pw.chromium.launch(**launch)
+        # A saved login for Linear, if `scripts/capture_login.py linear` has been run.
+        # Without it the Linear beat is skipped and reported, never faked.
+        auth = ROOT / "runs" / "auth" / "linear.json"
         ctx = browser.new_context(
             viewport=VIEWPORT, record_video_dir=str(OUT),
             record_video_size=VIEWPORT, device_scale_factor=2,
             color_scheme="light",  # the console's light theme is the designed one
+            storage_state=str(auth) if auth.exists() else None,
+            user_agent=("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/128.0.0.0 Safari/537.36"),
         )
+        ctx.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
         ctx.add_init_script(_CURSOR)
         page = ctx.new_page()
         clock[0] = time.monotonic()  # the camera is rolling from here
@@ -329,14 +372,32 @@ def record(fast: bool = False) -> Path:
         # ---- title --------------------------------------------------------
         _card(page, "Meridian Health", "Walnut",
               "One question. Every system at once.")
-        beat(2, "title")
+        beat(1.2, "title")
+
+        # ---- the problem, drawn ---------------------------------------------
+        # Scattered sources becoming one graph. Rendered live from demo/intro.html
+        # so it is part of the same take, not an edit; it tells the recorder its
+        # own length. Skipped, and said so, if the file is not there.
+        intro = ROOT / "demo" / "intro-v2.html"
+        if intro.exists():
+            page.goto(intro.as_uri())
+            page.wait_for_load_state("load")
+            # Hold at least as long as the problem statement takes to say. The
+            # animation's final frame is designed to be held; the words are not
+            # designed to be rushed.
+            length = max(float(page.evaluate("window.__introDuration || 20")), 23.5)
+            beat(length, "intro")
+            page.wait_for_function("document.documentElement.dataset.done === '1'",
+                                   timeout=15000)
+        else:
+            missing.append("demo/intro.html — the opening animation")
 
         # ---- 0:00 the estate ------------------------------------------------
-        page.goto(f"{base}/connectors", wait_until="networkidle")
-        beat(7, "connectors")
+        page.goto(f"{base}/connectors", wait_until="load")
+        beat(6, "connectors")
 
         # ---- 0:15 ask about the patient -------------------------------------
-        page.goto(base, wait_until="networkidle")
+        page.goto(base, wait_until="load")
         beat(2, "ask")
         _point_at(page, page.locator("#q"))
         page.click("#q")
@@ -344,12 +405,12 @@ def record(fast: bool = False) -> Path:
         beat(1, "typed")
         page.keyboard.press("Enter")
         page.wait_for_load_state("networkidle")
-        beat(6.5, "answer")
+        beat(5, "answer")
 
         # ---- 0:25 the briefing ----------------------------------------------
         for _ in range(3):
             _glide(page, 260)
-            beat(1.5, "briefing")
+            beat(1.2, "briefing")
 
         # open one citation — the receipt is one click away, never in the way
         cites = page.locator("details.cite > summary")
@@ -357,7 +418,7 @@ def record(fast: bool = False) -> Path:
             target = cites.nth(min(3, cites.count() - 1))
             _point_at(page, target)
             target.click()
-            beat(3, "citation")
+            beat(2.5, "citation")
 
         # ---- 0:45 the contradiction -----------------------------------------
         alert = need(page.locator(".alert"), "the contradiction — the demo's climax")
@@ -365,16 +426,16 @@ def record(fast: bool = False) -> Path:
             alert.scroll_into_view_if_needed()
             page.evaluate(_EMPHASIS)
             page.wait_for_timeout(500)
-            beat(21, "contradiction")
+            beat(18.5, "contradiction")
 
         # ---- 1:05 coverage — including what held nothing --------------------
         page.keyboard.press("End")
-        beat(12, "coverage")
+        beat(11, "coverage")
 
         # ---- 1:15 it acts ---------------------------------------------------
-        page.goto(f"{base}/knowledge", wait_until="networkidle")
+        page.goto(f"{base}/knowledge", wait_until="load")
         page.keyboard.press("End")
-        beat(3, "conflicts")
+        beat(2.5, "conflicts")
         # Address the clinical conflict by its own subject, not by position. An
         # earlier take matched an enclosing div and clicked the LAST propose button
         # on the page — so the video showed a patient's unrecorded drug reaction and
@@ -394,23 +455,54 @@ def record(fast: bool = False) -> Path:
             beat(1, "propose")
             propose.click()
             page.wait_for_load_state("networkidle")
-        page.goto(f"{base}/actions?tab=activity", wait_until="networkidle")
-        beat(12, "acted")
+        page.goto(f"{base}/actions?tab=activity", wait_until="load")
+        beat(10, "acted")
+
+        # ---- proof, in the other systems' own interfaces --------------------
+        # The console saying "done" is Walnut's word for it. These two beats are
+        # the systems that were written to, showing the write themselves.
+        landed = page.locator("text=/https:\\/\\/linear\\.app\\/\\S+/").first
+        issue_url = None
+        if landed.count():
+            import re as _re
+
+            m = _re.search(r"https://linear\.app/\S+", landed.inner_text())
+            issue_url = m.group(0) if m else None
+        if issue_url and auth.exists():
+            page.goto(issue_url, wait_until="domcontentloaded")
+            page.wait_for_timeout(2500)  # Linear is an app; let it paint
+            beat(6, "linear")
+        else:
+            # Linear's sign-in refuses automated browsers, so the issue is shown from
+            # a screen recording the operator makes in their own browser and
+            # finish_demo.sh lays over this slot. The beat still runs, on the activity
+            # list, so the slot exists in the timeline and the narration lines up.
+            missing.append("the real Linear issue in-browser — overlay a clip on the "
+                           "'linear' slot with finish_demo.sh --linear-clip")
+            beat(6, "linear")
+
+        page.goto(f"http://127.0.0.1:{DISPENSARY_PORT}/", wait_until="load")
+        held = page.locator("text=HELD").first
+        if held.count():
+            held.scroll_into_view_if_needed()
+        else:
+            missing.append("the pharmacy's own queue showing the hold")
+        beat(7, "dispensary")
 
         # ---- 1:30 where it stops --------------------------------------------
-        page.goto(f"{base}/approvals", wait_until="networkidle")
-        beat(12, "approvals")
+        page.goto(f"{base}/approvals", wait_until="load")
+        beat(10.5, "approvals")
 
         # ---- 1:45 what it refuses -------------------------------------------
-        page.goto(f"{base}/audit", wait_until="networkidle")
+        page.goto(f"{base}/audit", wait_until="load")
         beat(3, "audit")
         _glide(page, 700, steps=40)
-        beat(9, "refusal")
+        beat(8.5, "refusal")
 
         # ---- close --------------------------------------------------------
         _card(page, "Walnut", "Nothing is lost.",
               "Every answer cited. Every action justified.")
-        beat(3, "close")
+        beat(1.8, "close")
 
         ctx.close()
         browser.close()
