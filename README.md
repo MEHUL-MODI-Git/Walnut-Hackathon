@@ -9,7 +9,7 @@ Built for the Multi-App AI Agent Hackathon · Lemma × Comma Capital
 |---|---|
 | 🎥 **Demo video (2 min)** | _paste link here before submitting_ |
 | 💻 **Run it** | `make install && make stack` — no credentials needed |
-| ✅ **Tests** | 393, passing on two graph backends |
+| ✅ **Tests** | 395, passing on two graph backends |
 
 ---
 
@@ -118,9 +118,13 @@ Each one can read *and* write.
 
 **Verified against real accounts.** Notion and Linear were run against live API keys
 during this build and pass 12 of 15 conformance checks each (the other 3 need a write
-target, and are reported as *skipped*, never quietly passed). The demo itself runs on
-seeded data so the story stays coherent — a live account holding one unrelated page
-would delete the clinic's records from the corpus.
+target, and are reported as *skipped*, never quietly passed).
+
+**In the demo video, Linear is live.** The issue on screen was created in a real Linear
+workspace by the agent during the recording, and the video then cuts into Linear itself
+to show it. Slack, Notion and email run on seeded clinic data in the video, on purpose:
+connecting the live Notion account would replace the clinic's visit notes with the one
+unrelated page that integration can see, and then write to it.
 
 ### Plus your own systems — any number of them
 
@@ -284,7 +288,7 @@ worse than no control.
 ### e. The full suite, offline
 
 ```bash
-make test                      # 393 tests
+make test                      # 395 tests
 WALNUT_GRAPH=simple make test  # again, on the dependency-free graph backend
 ```
 
@@ -343,7 +347,8 @@ Listed because a reliability section that only lists successes isn't one.
 - **Identity matching is deterministic, not calibrated.** Uncertain matches go to a
   person, not to a confidence threshold.
 - **Three of the five built-in apps are tested against recorded API shapes, not live
-  accounts.** Notion and Linear were verified live; Slack, GitHub and email were not.
+  accounts.** Linear is used live in the demo and Notion was verified live; Slack,
+  GitHub and email were not.
 
 ### Bugs this build actually found
 
@@ -360,21 +365,29 @@ Recorded because "show how you know it works" should include how you learned it 
 | Adversarial review | The instruction-injection rule exempted low-risk writes — which included setting an arbitrary email flag, so a poisoned document could mark a real message deleted |
 | A test written against the claim | **Undo bypassed the approval gate**, so a held dose could be released in two steps that both looked routine |
 | Conformance suite | `labs` keyed records on a non-unique column, collapsing a six-month trend into one record |
+| Connecting a live system | **The agent cited itself.** It filed a Linear issue summarising the allergy contradiction; the next ingest read that issue back as a fresh claim from Linear and ranked it above the nurse's message it summarised. Every write now carries a signature, and a signed record is never treated as evidence |
 
 ---
 
 ## 5. Demo video
 
-**🎥 _paste link here before submitting_** — 1 min 57 sec.
+**🎥 _paste link here before submitting_** — 2 min 18 sec.
 
 The video is not a mock-up or a slideshow. It was recorded by driving the running
 product in a real browser (`scripts/record_demo.py`), so every number on screen came out
 of the live system during the take. If a feature had broken, the recording would show it.
 
-It covers, in order: the connected systems including the customer's own · asking one
-question about one patient · the contradiction between the chart and the nurse's message
-· the coverage table including the source that held nothing · four writes across four
-systems including the pharmacy hold · the email stopped for a human · the audit trail.
+It covers, in order: why scattered information is dangerous · the connected systems
+including the clinic's own · one question about one patient · the contradiction between
+the chart and the nurse's message · the coverage table including the source that held
+nothing · four writes across four systems · **the issue inside Linear, and the hold
+inside the pharmacy's own system** · the email stopped for a human · the audit trail.
+
+Two parts of the video come from outside the recorder, and are labelled here so nothing
+is passed off as more than it is: the opening animation is a designed sequence
+(`demo/intro-v2.html`), and the cut into Linear is a screen recording made in a normal
+browser, because Linear's sign-in refuses automated ones. The issue it shows is real
+and was created by the agent.
 
 ---
 
