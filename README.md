@@ -7,7 +7,7 @@ Built for the Multi-App AI Agent Hackathon · Lemma × Comma Capital
 
 | | |
 |---|---|
-| 🎥 **Demo video (2 min)** | _paste link here before submitting_ |
+| 🎥 **Demo video (2 min)** | **https://youtu.be/YiiNclHpecY** |
 | 💻 **Run it** | `make install && make stack` — no credentials needed |
 | ✅ **Tests** | 395, passing on two graph backends |
 
@@ -371,7 +371,7 @@ Recorded because "show how you know it works" should include how you learned it 
 
 ## 5. Demo video
 
-**🎥 _paste link here before submitting_** — 2 min 18 sec.
+**🎥 https://youtu.be/YiiNclHpecY** — 2 min 18 sec.
 
 The video is not a mock-up or a slideshow. It was recorded by driving the running
 product in a real browser (`scripts/record_demo.py`), so every number on screen came out
